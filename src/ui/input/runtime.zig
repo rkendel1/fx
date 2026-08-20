@@ -2306,6 +2306,11 @@ test "input escape parser separates plain up down from history arrows" {
 test "input escape parser recognizes unmodified kitty Escape" {
     try expectEscapeAction("[27u", .escape);
     try expectEscapeAction("[27;1u", .escape);
+    try expectEscapeAction("[27;1:1u", .escape);
+    // Ghostty with Num Lock active sends modifier 128 (bit 7).
+    try expectEscapeAction("[27;129u", .escape);
+    // Caps Lock (bit 6) should also be ignored.
+    try expectEscapeAction("[27;65u", .escape);
 }
 
 test "input escape parser resolves unmodified kitty Backspace to a delete byte" {
