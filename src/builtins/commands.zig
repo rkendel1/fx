@@ -89,14 +89,20 @@ pub const top_level_specs = [_]TopLevelSpec{
     .{
         .kind = .login,
         .token = "login",
-        .usage = "login",
-        .summary = "Sign in with Vercel",
+        .usage = "login [--codex]",
+        .summary = "Sign in with Vercel, or with ChatGPT Codex via a device code",
+        .options = &.{
+            .{ .flag = "--codex", .description = "Sign in with ChatGPT Codex using a device code" },
+        },
     },
     .{
         .kind = .logout,
         .token = "logout",
-        .usage = "logout",
-        .summary = "Sign out of the current Vercel session",
+        .usage = "logout [--codex]",
+        .summary = "Sign out of Vercel, or of ChatGPT Codex",
+        .options = &.{
+            .{ .flag = "--codex", .description = "Sign out of ChatGPT Codex and revoke its tokens" },
+        },
     },
     .{
         .kind = .setup,
@@ -286,8 +292,8 @@ pub const top_level_help_groups = [_]TopLevelHelpGroup{
         .{ .kind = .replay, .usage = "replay <tape>" },
     } },
     .{ .entries = &.{
-        .{ .kind = .login, .usage = "login" },
-        .{ .kind = .logout, .usage = "logout" },
+        .{ .kind = .login, .usage = "login [--codex]" },
+        .{ .kind = .logout, .usage = "logout [--codex]" },
         .{ .kind = .setup, .usage = "setup" },
         .{ .kind = .teams, .usage = "teams" },
         .{ .kind = .credits, .usage = "credits|balance" },
