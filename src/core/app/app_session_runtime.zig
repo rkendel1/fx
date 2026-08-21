@@ -368,6 +368,7 @@ pub const SessionPicker = struct {
     has_more: bool = false,
     loading_more: bool = false,
     summaries: std.ArrayList(session_store.SessionSummary) = .empty,
+    continuation: ?subagent_resume_admission.ActionableContinuation = null,
     selected: usize = 0,
     window_start: usize = 0,
     scope: SessionPickerScope = .current_workspace,
@@ -378,6 +379,7 @@ pub const SessionPicker = struct {
     pub fn deinit(self: *SessionPicker, alloc: Allocator) void {
         for (self.summaries.items) |*summary| summary.deinit(alloc);
         self.summaries.deinit(alloc);
+        if (self.continuation) |*continuation| continuation.deinit(alloc);
         self.* = .{};
     }
 
@@ -491,7 +493,7 @@ const SessionPickerPageCache = struct {
     active_id: ?[]u8 = null,
     limit: usize = 0,
     loaded_at_ns: i128 = 0,
-    page: session_store.ResumableSessionPage = .{},
+    page: subagent_resume_admission.ActionableSessionPage = .{},
 
     fn deinit(self: *SessionPickerPageCache) void {
         const alloc = std.heap.c_allocator;
@@ -515,19 +517,32 @@ const SessionPickerPageCache = struct {
 
     fn install(
         self: *SessionPickerPageCache,
-        source: *const session_store.ResumableSessionPage,
+        source: *const subagent_resume_admission.ActionableSessionPage,
         active_id: ?[]const u8,
         limit: usize,
         loaded_at_ns: i128,
     ) !void {
         const alloc = std.heap.c_allocator;
+        var owned_active_id = if (active_id) |id| try alloc.dupe(u8, id) else null;
+        errdefer if (owned_active_id) |id| alloc.free(id);
+        var owned_continuation: ?subagent_resume_admission.ActionableContinuation =
+            if (source.continuation) |continuation| .{
+                .updated_at_ms = continuation.updated_at_ms,
+                .id = try alloc.dupe(u8, continuation.id),
+            } else null;
+        errdefer if (owned_continuation) |*continuation| continuation.deinit(alloc);
         var replacement: SessionPickerPageCache = .{
             .ready = true,
-            .active_id = if (active_id) |id| try alloc.dupe(u8, id) else null,
+            .active_id = owned_active_id,
             .limit = limit,
             .loaded_at_ns = loaded_at_ns,
-            .page = .{ .has_more = source.has_more },
+            .page = .{
+                .has_more = source.has_more,
+                .continuation = owned_continuation,
+            },
         };
+        owned_active_id = null;
+        owned_continuation = null;
         errdefer replacement.deinit();
         for (source.summaries.items) |summary| {
             var copied = try session_summary_codec.cloneSessionSummary(alloc, summary);
@@ -559,7 +574,7 @@ fn sessionPickerCacheForScope(
 fn replaceSessionPickerPage(
     picker: *SessionPicker,
     alloc: Allocator,
-    source: *const session_store.ResumableSessionPage,
+    source: *const subagent_resume_admission.ActionableSessionPage,
 ) !void {
     var replacement: std.ArrayList(session_store.SessionSummary) = .empty;
     errdefer {
@@ -648,7 +663,7 @@ const SessionPickerLoad = struct {
         home_dir: []u8,
         workspace_root: []u8,
         request: PageRequest,
-        page: ?session_store.ResumableSessionPage = null,
+        page: ?subagent_resume_admission.ActionableSessionPage = null,
         failure: ?anyerror = null,
 
         fn deinit(self: *Task) void {
@@ -923,13 +938,18 @@ fn tryListResumableIndexPageForScope(
     active_id: ?[]const u8,
     continuation: ?session_store.ResumableSessionContinuation,
     limit: usize,
-) !?session_store.ResumableSessionPage {
-    var scoped = store;
-    scoped.resume_page_limit = limit;
-    return switch (scope) {
-        .current_workspace => try scoped.tryListResumableWorkspaceIndexPage(alloc, active_id, continuation),
-        .all_workspaces => try scoped.tryListResumableIndexPage(alloc, active_id, continuation),
-    };
+) !?subagent_resume_admission.ActionableSessionPage {
+    return subagent_resume_admission.tryListActionableIndexPage(
+        store,
+        alloc,
+        switch (scope) {
+            .current_workspace => .current_workspace,
+            .all_workspaces => .all_workspaces,
+        },
+        active_id,
+        continuation,
+        limit,
+    );
 }
 
 fn listResumablePageForScope(
@@ -939,13 +959,18 @@ fn listResumablePageForScope(
     active_id: ?[]const u8,
     continuation: ?session_store.ResumableSessionContinuation,
     limit: usize,
-) !session_store.ResumableSessionPage {
-    var scoped = store;
-    scoped.resume_page_limit = limit;
-    return switch (scope) {
-        .current_workspace => try scoped.listResumableWorkspacePage(alloc, active_id, continuation),
-        .all_workspaces => try scoped.listResumablePage(alloc, active_id, continuation),
-    };
+) !subagent_resume_admission.ActionableSessionPage {
+    return subagent_resume_admission.listActionablePage(
+        store,
+        alloc,
+        switch (scope) {
+            .current_workspace => .current_workspace,
+            .all_workspaces => .all_workspaces,
+        },
+        active_id,
+        continuation,
+        limit,
+    );
 }
 
 const default_cancelled_command_replay_inline_limit: usize = 64 * 1024;
@@ -1996,6 +2021,13 @@ pub fn Runtime(comptime App: type) type {
             const now_ns = io_mod.nanoTimestamp();
             if (cache.matches(active_id, limit)) {
                 try replaceSessionPickerPage(picker, app.alloc, &cache.page);
+                const continuation: ?subagent_resume_admission.ActionableContinuation =
+                    if (cache.page.continuation) |value| .{
+                        .updated_at_ms = value.updated_at_ms,
+                        .id = try app.alloc.dupe(u8, value.id),
+                    } else null;
+                if (picker.continuation) |*prior| prior.deinit(app.alloc);
+                picker.continuation = continuation;
                 picker.has_more = cache.page.has_more;
                 picker.load_state = .ready;
                 cache_visible = true;
@@ -2184,8 +2216,17 @@ pub fn Runtime(comptime App: type) type {
             app: *App,
             picker: *SessionPicker,
             task: *const SessionPickerLoad.Task,
-            page: *const session_store.ResumableSessionPage,
+            page: *const subagent_resume_admission.ActionableSessionPage,
         ) !void {
+            var continuation: ?subagent_resume_admission.ActionableContinuation =
+                if (page.continuation) |value| .{
+                    .updated_at_ms = value.updated_at_ms,
+                    .id = try app.alloc.dupe(u8, value.id),
+                } else null;
+            errdefer if (continuation) |value| {
+                var owned = value;
+                owned.deinit(app.alloc);
+            };
             const selected_load_more = task.request.continuation != null and
                 picker.selected == picker.filteredItemCount();
             const previous_filtered_count = picker.filteredItemCount();
@@ -2194,6 +2235,9 @@ pub fn Runtime(comptime App: type) type {
             } else {
                 try picker.appendPage(app.alloc, page.summaries.items);
             }
+            if (picker.continuation) |*prior| prior.deinit(app.alloc);
+            picker.continuation = continuation;
+            continuation = null;
             picker.has_more = page.has_more;
             picker.loading_more = false;
             picker.load_state = .ready;
@@ -2221,7 +2265,8 @@ pub fn Runtime(comptime App: type) type {
                 value
             else
                 return error.SessionStoreUnavailable;
-            const last = picker.summaries.items[picker.summaries.items.len - 1];
+            const continuation = picker.continuation orelse
+                return error.SessionStoreUnavailable;
             const active_id = if (app.session_persistence.writable) |*loaded|
                 loaded.active_id
             else
@@ -2234,10 +2279,7 @@ pub fn Runtime(comptime App: type) type {
                 picker.generation,
                 picker.scope,
                 active_id,
-                .{
-                    .updated_at_ms = last.updated_at_ms,
-                    .id = last.id,
-                },
+                continuation.view(),
                 limit,
             );
 
@@ -9045,8 +9087,8 @@ test "session picker rejects a load more completion after switching to a fresh c
     try Runtime(TestApp).initializePersistence(&app, true);
     try Runtime(TestApp).beginFreshPersistedSession(&app);
 
-    const current_page: session_store.ResumableSessionPage = .{};
-    var all_page: session_store.ResumableSessionPage = .{ .has_more = true };
+    const current_page: subagent_resume_admission.ActionableSessionPage = .{};
+    var all_page: subagent_resume_admission.ActionableSessionPage = .{ .has_more = true };
     defer all_page.deinit(alloc);
     try all_page.summaries.append(alloc, .{
         .id = try alloc.dupe(u8, "foreign-session"),
@@ -9472,7 +9514,7 @@ test "session picker keeps stale cached rows ready when refresh fails" {
     try Runtime(TestApp).initializePersistence(&app, true);
     try Runtime(TestApp).beginFreshPersistedSession(&app);
 
-    var cached_page: session_store.ResumableSessionPage = .{};
+    var cached_page: subagent_resume_admission.ActionableSessionPage = .{};
     defer cached_page.deinit(alloc);
     try cached_page.summaries.append(alloc, .{
         .id = try alloc.dupe(u8, "cached-session"),

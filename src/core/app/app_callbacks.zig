@@ -579,12 +579,16 @@ pub fn Bindings(comptime App: type) type {
             const app: *App = @ptrCast(@alignCast(ctx));
             if (comptime @hasField(App, "session_persistence")) {
                 const host = app_session_runtime.Runtime(App).subagentHost(app) orelse return;
-                parent_delivery_projector.acknowledge(
+                const retirement_ready = parent_delivery_projector
+                    .acknowledgeWithRetirementSignal(
                     arena,
                     host.sessions,
                     host.manager.options.child_store,
                     acknowledgements,
                 );
+                if (retirement_ready) {
+                    host.requestRetirementSweep(io_mod.milliTimestamp());
+                }
             }
         }
 

@@ -285,12 +285,16 @@ fn acknowledgeParentTurnContext(
     acknowledgements: []const agent_runtime.ParentTurnDeliveryAck,
 ) void {
     const context: *Context = @ptrCast(@alignCast(raw));
-    parent_delivery_projector.acknowledge(
+    const retirement_ready = parent_delivery_projector
+        .acknowledgeWithRetirementSignal(
         arena,
         context.config.host.sessions,
         context.config.host.manager.options.child_store,
         acknowledgements,
     );
+    if (retirement_ready) {
+        context.config.host.requestRetirementSweep(io_mod.milliTimestamp());
+    }
 }
 
 fn appendRuntimeContext(raw: *anyopaque, arena: Allocator, messages: *std.ArrayList(types.ChatMessage)) !void {

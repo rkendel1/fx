@@ -6169,26 +6169,29 @@ describe("acp: model-independent", () => {
   }
 
   test(
-    "session/load rejects a completed one-off child without changing its control",
+    "session/load denies pending one-off then returns not found after retirement",
     async () => {
       const root = createIsolatedRoot("fx-acp-one-off-load-");
       const childName = "acp-readonly-child";
       const childPrompt = "ACP_ONE_OFF_LOAD_CHILD";
-      const routeChildAndParent = (body: string) =>
-        body.includes(childPrompt)
-          ? finalText("ACP_ONE_OFF_LOAD_CHILD_DONE")
-          : finalText("ACP_ONE_OFF_LOAD_PARENT_DONE");
-      const gateway = startFakeGateway([
-        fakeGatewayToolCall("acp_one_off_load_create", "subagent", {
+      const gateway = startDynamicFakeGateway((body) => {
+        if (body.includes("Acknowledge the completed one-off result.")) {
+          return finalText("ACP_ONE_OFF_RETIREMENT_ACK_DONE");
+        }
+        if (body.includes('"toolCallId":"acp_one_off_load_create"')) {
+          return finalText("ACP_ONE_OFF_LOAD_PARENT_DONE");
+        }
+        if (body.includes(childPrompt)) {
+          return finalText("ACP_ONE_OFF_LOAD_CHILD_DONE");
+        }
+        return fakeGatewayToolCall("acp_one_off_load_create", "subagent", {
           command: { create: {
             name: childName,
             mode: "one_off",
             prompt: childPrompt,
           } },
-        }),
-        routeChildAndParent,
-        routeChildAndParent,
-      ]);
+        });
+      });
       try {
         client = await AcpClient.create({
           cwd: root.workspace,
@@ -6201,25 +6204,32 @@ describe("acp: model-independent", () => {
           TIMEOUT,
         );
         expect(result.promptResult.result.stopReason).toBe("end_turn");
+        const sessionsDir = join(root.home, ".fx", "sessions");
+        let control: { id: string; path: string } | undefined;
         await waitForCondition(
           "ACP one-off child completion",
-          () => gateway.requests.length === 3,
+          () => {
+            if (gateway.requests.length !== 3) return false;
+            control = readdirSync(sessionsDir)
+              .map((id) => ({
+                id,
+                path: join(sessionsDir, id, "subagent", "control.json"),
+              }))
+              .filter((entry) => existsSync(entry.path))
+              .find((entry) => {
+                const record = JSON.parse(readFileSync(entry.path, "utf8")) as {
+                  state: string;
+                  configuration: { name: string };
+                };
+                return record.configuration.name === childName &&
+                  record.state === "completed";
+              });
+            return control !== undefined;
+          },
+          TIMEOUT,
         );
         await client.close();
 
-        const sessionsDir = join(root.home, ".fx", "sessions");
-        const control = readdirSync(sessionsDir)
-          .map((id) => ({
-            id,
-            path: join(sessionsDir, id, "subagent", "control.json"),
-          }))
-          .filter((entry) => existsSync(entry.path))
-          .find((entry) => {
-            const record = JSON.parse(readFileSync(entry.path, "utf8")) as {
-              configuration: { name: string };
-            };
-            return record.configuration.name === childName;
-          });
         if (!control) throw new Error("ACP one-off control was not persisted");
         const controlBefore = readFileSync(control.path, "utf8");
 
@@ -6249,6 +6259,44 @@ describe("acp: model-independent", () => {
         const parent = await readResponse(client, 12);
         expect(parent.error).toBeUndefined();
         expect(Array.isArray(parent.result?.configOptions)).toBe(true);
+
+        await client.close();
+        client = null;
+        const acknowledged = await runFx([
+          "ask",
+          "--json",
+          "--auto",
+          "--resume-id",
+          parentId,
+          "Acknowledge the completed one-off result.",
+        ], {
+          cwd: root.workspace,
+          env: fakeGatewayEnv(root, gateway),
+          timeoutMs: TIMEOUT,
+        });
+        expect(acknowledged.code).toBe(0);
+        expect(gateway.requests.at(-1)?.body).toContain(
+          "ACP_ONE_OFF_LOAD_CHILD_DONE",
+        );
+        await waitForCondition(
+          "ACP one-off child retirement",
+          () => !existsSync(control.path),
+        );
+        client = await AcpClient.create({
+          cwd: root.workspace,
+          env: fakeGatewayEnv(root, gateway),
+        });
+        await client.request("initialize", { protocolVersion: 1 }, 20);
+        const retired = await client.request(
+          "session/load",
+          { sessionId: control.id, mcpServers: [] },
+          21,
+        ) as any;
+        expect(retired.error).toEqual({
+          code: -32602,
+          message: "Session not found",
+        });
+        expect(gateway.requests).toHaveLength(4);
         expect(client.stderr).toBe("");
       } finally {
         await client?.close();
@@ -6256,7 +6304,7 @@ describe("acp: model-independent", () => {
         rmSync(root.root, { recursive: true, force: true });
       }
     },
-    TIMEOUT,
+    LIVE_TIMEOUT,
   );
 
   test(

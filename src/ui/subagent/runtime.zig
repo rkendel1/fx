@@ -12,6 +12,7 @@ const io_mod = @import("../../core/shared/io.zig");
 const manager_mod = @import("../../core/subagent/manager.zig");
 const permission_request = @import("../../core/permissions/permission_request.zig");
 const projection = @import("../../core/subagent/ui_projection.zig");
+const resume_admission = @import("../../core/subagent/resume_admission.zig");
 const terminal_projection = @import("../../core/terminal/ui_projection.zig");
 const skill_contract = @import("../../core/skills/skill_contract.zig");
 const input_action = @import("../../core/input/input_action.zig");
@@ -342,6 +343,7 @@ const AttachState = struct {
     candidates: std.ArrayList(projection.AttachCandidate) = .empty,
     selected: usize = 0,
     has_more: bool = false,
+    continuation: ?resume_admission.ActionableContinuation = null,
     loading: bool = false,
     selection_stale: bool = false,
     attempt: MutationAttempt = .{},
@@ -355,6 +357,8 @@ const AttachState = struct {
     fn clear(self: *AttachState, alloc: Allocator) void {
         for (self.candidates.items) |*candidate| candidate.deinit(alloc);
         self.candidates.clearRetainingCapacity();
+        if (self.continuation) |*continuation| continuation.deinit(alloc);
+        self.continuation = null;
         self.attempt.deinit(alloc);
         self.selected = 0;
         self.has_more = false;
@@ -2203,6 +2207,12 @@ pub const Runtime = struct {
         var page = page_value;
         errdefer page.deinit(alloc);
         const has_more = page.has_more;
+        const continuation = page.continuation;
+        page.continuation = null;
+        errdefer if (continuation) |value| {
+            var owned = value;
+            owned.deinit(alloc);
+        };
         if (!append) {
             const prior_selected = self.attach.selectedCandidate();
             var next_candidates: std.ArrayList(projection.AttachCandidate) = .empty;
@@ -2237,6 +2247,8 @@ pub const Runtime = struct {
         }
         alloc.free(page.candidates);
         page = undefined;
+        if (self.attach.continuation) |*prior| prior.deinit(alloc);
+        self.attach.continuation = continuation;
         self.attach.has_more = has_more;
         self.attach.loading = false;
         if (self.attach.candidates.items.len == 0) self.attach.selected = 0 else {
@@ -2253,9 +2265,9 @@ pub const Runtime = struct {
     }
 
     pub fn attachContinuation(self: Runtime) ?@import("../../core/session/session_store.zig").ResumableSessionContinuation {
-        if (!self.attach.has_more or self.attach.candidates.items.len == 0) return null;
-        const last = self.attach.candidates.items[self.attach.candidates.items.len - 1];
-        return .{ .updated_at_ms = last.updated_at_ms, .id = last.session_id };
+        if (!self.attach.has_more) return null;
+        const continuation = self.attach.continuation orelse return null;
+        return continuation.view();
     }
 
     pub fn prepareManagerMutation(
