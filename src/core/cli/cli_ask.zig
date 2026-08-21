@@ -2,6 +2,7 @@ const std = @import("std");
 const std_builtin = @import("builtin");
 const command_admission = @import("../permissions/command_admission.zig");
 const agent_runtime = @import("../agent/agent_runtime.zig");
+const agent_stream_provider = @import("../agent/stream_provider.zig");
 const app_lifecycle = @import("../app/app_lifecycle.zig");
 const app_runtime_setup = @import("../app/app_runtime_setup.zig");
 const auth_runtime = @import("../auth/auth_runtime.zig");
@@ -30,6 +31,7 @@ const notification_sound = @import("../notifications/sound.zig");
 const io_mod = @import("../shared/io.zig");
 const config_runtime = @import("../config/config_runtime.zig");
 const model_capabilities = @import("../config/model_capabilities.zig");
+const model_provider = @import("../config/model_provider.zig");
 const mcp_elicitation_interaction = @import("../mcp/elicitation_interaction.zig");
 const mcp_elicitation = @import("../mcp/elicitation.zig");
 const mcp_access_policy = @import("../mcp/access_policy.zig");
@@ -221,6 +223,7 @@ pub const Config = struct {
     gateway_chat_url: []const u8,
     gateway_models_path: []const u8,
     gateway_provider: gateway_provider.Provider,
+    codex_agent_stream: ?agent_stream_provider.Provider = null,
     background_process_provider: background_process_provider.Provider =
         background_process_provider.unavailable_provider,
     secret_store: host.SecretStore,
@@ -238,6 +241,7 @@ pub const Config = struct {
     load_mcp_runtime: mcp_runtime.LoadRuntimeFn,
     devbox_provider: ?devbox_executor.Provider = null,
     permission_reviewer_provider: ?permission_auto_classifier.Provider = null,
+    codex_permission_reviewer_provider: ?permission_auto_classifier.Provider = null,
     context_limit_overrides: []const config_runtime.context_limits.Override = &.{},
     additional_directories: []const []const u8 = &.{},
     saved_directories_suppressed: bool = false,
@@ -505,6 +509,8 @@ const AskContext = struct {
     api_key: []const u8 = "",
     gateway_team: ?[]const u8 = null,
     credential_source: ?types.CredentialSource = null,
+    account_id: ?[]const u8 = null,
+    provider: model_provider.ProviderId = .gateway,
     model_catalog_access: credentials.CatalogAccess = .{ .public_only = .no_credential },
     model: []const u8 = "",
     agent_step_limit: usize = 0,
@@ -813,6 +819,7 @@ const AskContext = struct {
         errdefer if (store_owned) store.deinit(self.alloc);
 
         const seed_preferences = session_codec.DurableSessionPreferences{
+            .provider = self.provider,
             .model = @constCast(self.seed_model),
             .effort = self.effort,
             .fast_mode = self.fast_mode,
@@ -869,6 +876,7 @@ const AskContext = struct {
 
         if (self.requested_resume != null) {
             const preferences = self.writable.?.state.preferences;
+            self.provider = preferences.provider;
             self.model = preferences.model;
             self.effort = preferences.effort;
             self.fast_mode = preferences.fast_mode;
@@ -920,15 +928,18 @@ const AskContext = struct {
     }
 
     fn toolContext(self: *AskContext) tool_runtime.Context {
-        self.web_search_runtime.configure(.{
-            .api_key = self.api_key,
-            .gateway_team = self.gateway_team,
-            .worker_model = self.model,
-            .gateway_retry_count = self.cfg.gateway_retry_count,
-            .gateway_chat_url = self.cfg.gateway_chat_url,
-            .usage = &self.session.usage,
-            .usage_allocator = self.alloc,
-        });
+        const gateway_features_allowed = model_provider.usesGatewayAuxiliaries(self.provider);
+        if (gateway_features_allowed) {
+            self.web_search_runtime.configure(.{
+                .api_key = self.api_key,
+                .gateway_team = self.gateway_team,
+                .worker_model = self.model,
+                .gateway_retry_count = self.cfg.gateway_retry_count,
+                .gateway_chat_url = self.cfg.gateway_chat_url,
+                .usage = &self.session.usage,
+                .usage_allocator = self.alloc,
+            });
+        }
         var tc: tool_runtime.Context = .{
             .workspace_root = self.workspace_root,
             .access_scope = self.workspace_access.scope(self.workspace_root),
@@ -940,10 +951,13 @@ const AskContext = struct {
             .max_command_output_bytes = self.cfg.max_command_output_bytes,
             .max_tool_result_bytes = self.max_tool_result_bytes,
             .api_key = self.api_key,
-            .agent_stream_provider = self.cfg.gateway_provider.agent_stream,
+            .agent_stream_provider = self.agentStreamProvider(),
             .gateway_team = self.gateway_team,
             .credential_source = self.credential_source,
+            .account_id = self.account_id,
+            .provider = self.provider,
             .oauth_transport = self.cfg.gateway_provider.oauth_transport,
+            .secret_store = self.cfg.secret_store,
             .model = self.model,
             .gateway_retry_count = self.cfg.gateway_retry_count,
             .gateway_chat_url = self.cfg.gateway_chat_url,
@@ -988,7 +1002,7 @@ const AskContext = struct {
             .web_fetch_progress_ctx = @ptrCast(self),
             .on_web_fetch_progress = onWebFetchProgress,
             .web_search_runtime_ready = false,
-            .web_search_backend = self.web_search_runtime.dispatchBackend(),
+            .web_search_backend = if (gateway_features_allowed) self.web_search_runtime.dispatchBackend() else null,
             .web_search_progress_ctx = @ptrCast(self),
             .on_web_search_progress = onWebSearchProgress,
             .model_capability_resolver = .{
@@ -1030,7 +1044,10 @@ const AskContext = struct {
 
     fn admissionAutoClassifier(self: *AskContext) permission_auto_classifier.Classifier {
         if (self.auto_classifier.enabled()) return self.auto_classifier;
-        const provider = self.cfg.permission_reviewer_provider orelse
+        const provider = switch (self.provider) {
+            .gateway => self.cfg.permission_reviewer_provider,
+            .codex => self.cfg.codex_permission_reviewer_provider,
+        } orelse
             return permission_auto_classifier.Classifier.disabled();
         return permission_auto_classifier.Classifier.withProvider(provider, .{
             .credential = self.api_key,
@@ -1040,6 +1057,13 @@ const AskContext = struct {
             .usage = &self.session.usage,
             .usage_allocator = self.alloc,
         });
+    }
+
+    fn agentStreamProvider(self: *const AskContext) agent_stream_provider.Provider {
+        return switch (self.provider) {
+            .gateway => self.cfg.gateway_provider.agent_stream,
+            .codex => self.cfg.codex_agent_stream orelse agent_stream_provider.unavailable_provider,
+        };
     }
 
     fn writeStdout(self: *AskContext, text: []const u8) !void {
@@ -1340,8 +1364,18 @@ pub fn runPromptCapture(alloc: Allocator, prompt: []const u8, auto_permission: b
     });
 }
 
-fn missingCredentialResult(alloc: Allocator, options: RunOptions) !PromptRunResult {
-    try options.deps.write_stderr(options.deps.stderr_ctx, "fx ask: " ++ credentials.missing_credential_message ++ "\n");
+fn missingCredentialResult(
+    alloc: Allocator,
+    options: RunOptions,
+    provider: model_provider.ProviderId,
+) !PromptRunResult {
+    const message = if (provider == .codex)
+        credentials.missing_chatgpt_credential_message
+    else
+        credentials.missing_credential_message;
+    try options.deps.write_stderr(options.deps.stderr_ctx, "fx ask: ");
+    try options.deps.write_stderr(options.deps.stderr_ctx, message);
+    try options.deps.write_stderr(options.deps.stderr_ctx, "\n");
     return .{
         .exit_code = 1,
         .assistant_output = try alloc.dupe(u8, ""),
@@ -1394,8 +1428,8 @@ fn runPromptInternal(alloc: Allocator, prompt: []const u8, permission_override: 
     );
     try checkHeadlessCancellation(options.deps);
 
-    if (!options.continue_recovery and startup.credential == null) {
-        return missingCredentialResult(alloc, options);
+    if (!options.continue_recovery and options.resume_target == null and startup.credential == null) {
+        return missingCredentialResult(alloc, options, startup.provider);
     }
 
     var owned_resumed_model: ?[]u8 = null;
@@ -1421,6 +1455,7 @@ fn runPromptInternal(alloc: Allocator, prompt: []const u8, permission_override: 
     );
     ctx.command_timeout_ms = options.command_timeout_ms;
     ctx.model = startup.selected_model;
+    ctx.provider = startup.provider;
     ctx.seed_model = startup.configured_model;
     ctx.requested_resume = options.resume_target;
     ctx.agent_step_limit = startup.agent_step_limit;
@@ -1475,12 +1510,35 @@ fn runPromptInternal(alloc: Allocator, prompt: []const u8, permission_override: 
         ctx.session.setConversationLanguageFromUserMessage(owned_prompt);
     }
 
-    const credential = startup.credential orelse
-        return missingCredentialResult(alloc, options);
+    var routed_credential: ?credentials.Credential = null;
+    defer if (routed_credential) |*credential| credential.deinit(alloc);
+    const startup_matches_final_model = if (startup.credential) |credential|
+        model_provider.authorizesCredential(ctx.provider, credential.source)
+    else
+        false;
+    const credential: *const credentials.Credential = if (startup_matches_final_model)
+        &startup.credential.?
+    else routed: {
+        const preferred = if (startup.credential) |value| value.source else null;
+        const resolution = try credentials.resolveForProvider(
+            alloc,
+            cfg.gateway_provider.oauth_transport,
+            cfg.secret_store,
+            .refresh_if_needed,
+            ctx.provider,
+            preferred,
+        );
+        routed_credential = resolution.credential;
+        if (routed_credential == null) {
+            return missingCredentialResult(alloc, options, ctx.provider);
+        }
+        break :routed &routed_credential.?;
+    };
     const api_key = credential.token;
     ctx.api_key = api_key;
     ctx.gateway_team = credential.gatewayTeam();
     ctx.credential_source = credential.source;
+    ctx.account_id = credential.accountId();
     ctx.model_catalog_access = credentials.catalogAccessForCredential(credential.source, api_key, credential.gatewayTeam());
 
     const restored_image_catalog = try ctx.session.snapshotImageCatalog(alloc, &.{});
@@ -1609,6 +1667,8 @@ fn runPromptInternal(alloc: Allocator, prompt: []const u8, permission_override: 
         .api_key = api_key,
         .gateway_team = if (credential.gatewayTeam()) |team| @constCast(team) else null,
         .credential_source = credential.source,
+        .account_id = if (credential.accountId()) |account_id| @constCast(account_id) else null,
+        .provider = ctx.provider,
         .permission_mode = ctx.permission_mode,
         .sandbox_backend = ctx.sandbox_backend,
         .history = context_history,
@@ -1787,7 +1847,7 @@ fn agentRuntimeDeps(ctx: *AskContext) agent_runtime.AgentRuntimeDeps {
     );
     return .{
         .ctx = @ptrCast(ctx),
-        .agent_stream_provider = ctx.cfg.gateway_provider.agent_stream,
+        .agent_stream_provider = ctx.agentStreamProvider(),
         .tool_registry = ctx.toolRegistry(),
         .context_registry = ctx.deps.context_registry,
         .context_enabled = ctx.context_enabled,
@@ -1840,13 +1900,15 @@ fn refreshGatewayCredential(
     alloc: Allocator,
     source: credentials.Source,
     mode: auth_runtime.CredentialRefreshMode,
+    expected_account_id: ?[]const u8,
 ) !?[]u8 {
     const ctx: *AskContext = @ptrCast(@alignCast(raw_ctx));
-    return auth_runtime.refreshFxLoginToken(
+    return auth_runtime.refreshCredentialTokenForAccount(
         ctx.cfg.gateway_provider.oauth_transport,
         alloc,
         source,
         mode,
+        expected_account_id,
     );
 }
 
@@ -4628,6 +4690,30 @@ test "CLI prompt projection configures web search then blocks native execution" 
     try std.testing.expectEqualStrings(ctx.cfg.gateway_chat_url, ctx.web_search_runtime.gateway_chat_url);
     try std.testing.expectEqual(.failure, execution.status);
     try std.testing.expectEqual(@as(usize, 0), provider_state.calls);
+}
+
+test "fx ask ChatGPT route disables Gateway-backed auxiliary providers" {
+    const alloc = std.testing.allocator;
+    var stdout_capture = TestCapture{};
+    defer stdout_capture.deinit(alloc);
+    var stderr_capture = TestCapture{};
+    defer stderr_capture.deinit(alloc);
+    var ctx = AskContext.init(
+        alloc,
+        testConfig(),
+        testPromptRunDeps(&stdout_capture, &stderr_capture, testPresentKeyStartup),
+        "/tmp/workspace",
+    );
+    defer ctx.deinit();
+    ctx.api_key = "chatgpt-secret";
+    ctx.credential_source = .chatgpt_subscription;
+    ctx.provider = .codex;
+    ctx.model = "gpt-5.4";
+
+    const tool_ctx = ctx.toolContext();
+    try std.testing.expect(tool_ctx.web_search_backend == null);
+    try std.testing.expect(!tool_ctx.auto_classifier.enabled());
+    try std.testing.expect(tool_ctx.permission_reviewer_provider == null);
 }
 
 test "fx ask finalization fails every failed turn" {

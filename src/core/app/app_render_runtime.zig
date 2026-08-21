@@ -14,6 +14,7 @@ const picker_state = @import("../input/picker_state.zig");
 const core_input_runtime = @import("../input/runtime.zig");
 const command_specs = @import("../slash_commands/command_specs.zig");
 const model_cache_runtime = @import("model_cache_runtime.zig");
+const provider_runtime = @import("provider_runtime.zig");
 const debug_trace = @import("../shared/debug_trace.zig");
 const diff_mod = @import("../output/diff.zig");
 const io_mod = @import("../shared/io.zig");
@@ -416,7 +417,7 @@ pub fn Runtime(comptime App: type) type {
                         picker_window_start = input_completion_runtime.CompletionRuntime(App).modelPickerWindowStart(app, count, picker_index);
                     },
                     .effort => {
-                        const target = if (app.input_runtime.picker.hasPendingModelPickerSelection()) app.input_runtime.picker.model_picker_pending_model.items else app.selected_model.items;
+                        const target = if (app.input_runtime.picker.hasPendingModelPickerSelection()) app.input_runtime.picker.model_picker_pending_model.items else provider_runtime.model(app);
                         const capabilities = model_capabilities.resolveForApp(App, app, target);
                         const effort_count = model_capabilities.reasoningEffortOptionCount(capabilities);
                         for (0..effort_count) |i| {
@@ -454,7 +455,7 @@ pub fn Runtime(comptime App: type) type {
             const inline_completion =
                 input_completion_runtime.CompletionRuntime(App).visibleInlineCompletion(app);
 
-            const visible_model = pending_model orelse app.selected_model.items;
+            const visible_model = pending_model orelse provider_runtime.model(app);
             const visible_capabilities = model_capabilities.resolveForApp(App, app, visible_model);
             const model_supports_fast = visible_capabilities.supports_fast_mode;
             const model_supports_effort = visible_capabilities.reasoning_efforts.len > 0;
@@ -1079,7 +1080,7 @@ pub fn Runtime(comptime App: type) type {
             slash_registry: command_specs.SlashRegistry,
         ) render_input.RenderContext {
             const chat = view.chat;
-            const visible_model = chat.configuration.model orelse app.selected_model.items;
+            const visible_model = chat.configuration.model orelse provider_runtime.model(app);
             const capabilities = model_capabilities.resolveForApp(App, app, visible_model);
             var ctx = base;
             ctx.slash_registry = slash_registry;
@@ -2811,11 +2812,11 @@ pub fn Runtime(comptime App: type) type {
                 };
             }
             if (comptime @hasDecl(@TypeOf(app.subagents), "setDefaults") and
-                @hasField(App, "selected_model") and @hasField(App, "effort"))
+                provider_runtime.supported(App) and @hasField(App, "effort"))
             {
                 try app.subagents.setDefaults(
                     app.alloc,
-                    app.selected_model.items,
+                    provider_runtime.model(app),
                     app.effort,
                 );
             }
@@ -3133,7 +3134,7 @@ pub fn Runtime(comptime App: type) type {
                 return;
             };
             if (comptime !@hasField(App, "session") or
-                !@hasField(App, "selected_model") or !@hasField(App, "effort"))
+                !provider_runtime.supported(App) or !@hasField(App, "effort"))
             {
                 app.subagents.mutationRejected(app.alloc, .{
                     .code = .store_failure,
@@ -3178,7 +3179,7 @@ pub fn Runtime(comptime App: type) type {
             var result = host.executeHumanCommand(app.alloc, &mutation.command, .{
                 .invocation_id = mutation.invocation_id,
                 .defaults = .{
-                    .model = app.selected_model.items,
+                    .model = provider_runtime.model(app),
                     .effort = app.effort,
                     .fast_mode = if (comptime @hasField(App, "fast_mode")) app.fast_mode else false,
                     .conversation_language = app.session.languageSnapshot(),

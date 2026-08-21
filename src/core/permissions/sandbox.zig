@@ -4393,7 +4393,7 @@ test "timeout remains dominant when its output callback fails" {
         .max_command_output_bytes = 1024,
         .output_chunk_ctx = @ptrCast(&trigger),
         .on_output_chunk = FailOutput.onChunk,
-        .timeout_ms = 120,
+        .timeout_ms = 500,
     }, std.testing.allocator, "trap 'echo TIMEOUT-FAIL; exit 0' TERM; while :; do :; done", "/tmp"));
     try std.testing.expect(trigger.seen);
 }

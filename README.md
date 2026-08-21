@@ -27,13 +27,24 @@ curl -fsSL https://fx.sh/setup.sh | bash
 
 ## Run fx
 
-To get started, sign in with Vercel:
+Sign in with Vercel AI Gateway:
 
 ```bash
 fx login
 ```
 
-Or add an AI Gateway API key:
+Or use an eligible ChatGPT subscription through OpenAI Codex OAuth:
+
+```bash
+fx login codex
+fx
+```
+
+Inside fx, `/provider` switches between Gateway and Codex, and `/model` lists the active provider's fetched models. Codex model IDs are the raw IDs returned by its authenticated catalog. Use `/logout codex` to remove the Codex session without affecting Vercel access.
+
+The OpenAI Codex route uses ChatGPT subscription access directly and never sends its OAuth token to Vercel AI Gateway. The session is stored privately at `~/.fx/chatgpt-auth.json` and refreshed when needed. On supported Codex models, `/fast` requests OpenAI's priority service tier and consumes ChatGPT credits at the higher Fast mode rate.
+
+To use an AI Gateway API key instead:
 
 ```bash
 fx setup

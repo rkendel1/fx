@@ -17,6 +17,7 @@ const text_utils = @import("../shared/text_utils.zig");
 const session = @import("../session/session.zig");
 const session_child_store = @import("../session/session_child_store.zig");
 const session_codec = @import("../session/session_codec.zig");
+const model_provider = @import("../config/model_provider.zig");
 const session_event = @import("../session/session_event.zig");
 const session_store = @import("../session/session_store.zig");
 const permissions = @import("../permissions/permissions.zig");
@@ -48,6 +49,7 @@ else
 const Allocator = std.mem.Allocator;
 
 pub const TurnPreferences = struct {
+    provider: model_provider.ProviderId = .gateway,
     model: []const u8,
     effort: types.ReasoningEffort,
 };
@@ -59,6 +61,7 @@ pub fn resolveTurnPreferences(
     persisted: session_codec.DurableSessionPreferences,
 ) TurnPreferences {
     return .{
+        .provider = persisted.provider,
         .model = configuration.model orelse persisted.model,
         .effort = configuration.effort orelse persisted.effort,
     };

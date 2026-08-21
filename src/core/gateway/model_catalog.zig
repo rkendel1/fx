@@ -545,7 +545,9 @@ fn modelPickerProvider(id: []const u8) []const u8 {
 }
 
 fn pickerProviderLimit(provider: []const u8) usize {
-    if (std.mem.eql(u8, provider, "anthropic") or std.mem.eql(u8, provider, "openai")) {
+    if (std.mem.eql(u8, provider, "anthropic") or
+        std.mem.eql(u8, provider, "openai"))
+    {
         return extended_picker_provider_limit;
     }
     return picker_provider_limit;

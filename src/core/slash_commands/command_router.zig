@@ -14,7 +14,7 @@ pub const ParsedCommand = union(enum) {
     rename_session: []const u8,
     help,
     login,
-    logout,
+    logout: []const u8,
     setup,
     status,
     background,
@@ -25,6 +25,7 @@ pub const ParsedCommand = union(enum) {
     images: []const u8,
     model: []const u8,
     models,
+    provider: []const u8,
     permissions: []const u8,
     allowlist: []const u8,
     stats,
@@ -60,7 +61,7 @@ pub const CommandHandlers = struct {
     continue_recovery: *const fn (ctx: *anyopaque) anyerror!void,
     show_help: *const fn (ctx: *anyopaque) anyerror!void,
     login: *const fn (ctx: *anyopaque) anyerror!void,
-    logout: *const fn (ctx: *anyopaque) anyerror!void,
+    logout: *const fn (ctx: *anyopaque, rest: []const u8) anyerror!void,
     setup: *const fn (ctx: *anyopaque) anyerror!void,
     show_status: *const fn (ctx: *anyopaque) anyerror!void,
     show_background: *const fn (ctx: *anyopaque) anyerror!void,
@@ -71,6 +72,7 @@ pub const CommandHandlers = struct {
     manage_images: *const fn (ctx: *anyopaque, rest: []const u8) anyerror!void,
     handle_model: *const fn (ctx: *anyopaque, query: []const u8) anyerror!void,
     show_models: *const fn (ctx: *anyopaque) anyerror!void,
+    handle_provider: *const fn (ctx: *anyopaque, rest: []const u8) anyerror!void,
     handle_permissions: *const fn (ctx: *anyopaque, rest: []const u8) anyerror!void,
     handle_allowlist: *const fn (ctx: *anyopaque, rest: []const u8) anyerror!void,
     show_stats: *const fn (ctx: *anyopaque) anyerror!void,
@@ -112,7 +114,7 @@ fn parsedCommand(kind: SlashKind, payload: []const u8) ParsedCommand {
         .rename_session => .{ .rename_session = payload },
         .help => .help,
         .login => .login,
-        .logout => .logout,
+        .logout => .{ .logout = payload },
         .setup => .setup,
         .status => .status,
         .background => .background,
@@ -123,6 +125,7 @@ fn parsedCommand(kind: SlashKind, payload: []const u8) ParsedCommand {
         .image => .{ .image = payload },
         .model => .{ .model = payload },
         .models => .models,
+        .provider => .{ .provider = payload },
         .permissions => .{ .permissions = payload },
         .allowlist => .{ .allowlist = payload },
         .stats => .stats,
@@ -172,7 +175,7 @@ pub fn route(registry: SlashRegistry, handlers: *const CommandHandlers, cmd: []c
         .rename_session => |rest| try handlers.rename_session(handlers.ctx, rest),
         .help => try handlers.show_help(handlers.ctx),
         .login => try handlers.login(handlers.ctx),
-        .logout => try handlers.logout(handlers.ctx),
+        .logout => |rest| try handlers.logout(handlers.ctx, rest),
         .setup => try handlers.setup(handlers.ctx),
         .status => try handlers.show_status(handlers.ctx),
         .background => try handlers.show_background(handlers.ctx),
@@ -183,6 +186,7 @@ pub fn route(registry: SlashRegistry, handlers: *const CommandHandlers, cmd: []c
         .images => |rest| try handlers.manage_images(handlers.ctx, rest),
         .model => |query| try handlers.handle_model(handlers.ctx, query),
         .models => try handlers.show_models(handlers.ctx),
+        .provider => |rest| try handlers.handle_provider(handlers.ctx, rest),
         .permissions => |rest| try handlers.handle_permissions(handlers.ctx, rest),
         .allowlist => |rest| try handlers.handle_allowlist(handlers.ctx, rest),
         .stats => try handlers.show_stats(handlers.ctx),
@@ -222,10 +226,24 @@ test "parse extracts model command payload" {
     }
 }
 
+test "parse extracts an optional logout provider" {
+    switch (parse(testSlashRegistry(), "/logout chatgpt")) {
+        .logout => |provider| try std.testing.expectEqualStrings("chatgpt", provider),
+        else => return error.TestExpectedLogoutCommand,
+    }
+}
+
 test "parse recognizes models" {
     switch (parse(testSlashRegistry(), "/models")) {
         .unknown => return error.TestExpectedModelsCommand,
         else => {},
+    }
+}
+
+test "parse extracts provider selection" {
+    switch (parse(testSlashRegistry(), "/provider codex")) {
+        .provider => |provider| try std.testing.expectEqualStrings("codex", provider),
+        else => return error.TestExpectedEqual,
     }
 }
 
@@ -554,7 +572,7 @@ fn testHandlers(ctx: *TestContext) CommandHandlers {
         .continue_recovery = unexpectedNoPayload,
         .show_help = unexpectedNoPayload,
         .login = unexpectedNoPayload,
-        .logout = unexpectedNoPayload,
+        .logout = unexpectedPayload,
         .setup = unexpectedNoPayload,
         .show_status = unexpectedNoPayload,
         .show_background = unexpectedNoPayload,
@@ -565,6 +583,7 @@ fn testHandlers(ctx: *TestContext) CommandHandlers {
         .manage_images = unexpectedPayload,
         .handle_model = unexpectedPayload,
         .show_models = unexpectedNoPayload,
+        .handle_provider = unexpectedPayload,
         .handle_permissions = unexpectedPayload,
         .handle_allowlist = unexpectedPayload,
         .show_stats = unexpectedNoPayload,

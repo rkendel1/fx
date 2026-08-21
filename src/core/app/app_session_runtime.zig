@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const question_answer = @import("../agent/question_answer.zig");
 const config_runtime = @import("../config/config_runtime.zig");
 const model_capabilities = @import("../config/model_capabilities.zig");
+const model_provider = @import("../config/model_provider.zig");
 const assistant_presentation = @import("../agent/assistant_presentation.zig");
 const tool_presentation = @import("../agent/runtime/tool_presentation.zig");
 const debug_trace = @import("../shared/debug_trace.zig");
@@ -12,6 +13,7 @@ const host_target = @import("../hosts/target.zig");
 const diff = @import("../output/diff.zig");
 const diagnostics = @import("../workspace/diagnostics.zig");
 const app_lifecycle = @import("app_lifecycle.zig");
+const provider_runtime = @import("provider_runtime.zig");
 const input_completion_runtime = @import("input_completion_runtime.zig");
 const input_queue_runtime = @import("input_queue_runtime.zig");
 const image_attachments = @import("../images/image_attachments.zig");
@@ -335,16 +337,26 @@ pub const ResumeHandoff = struct {
 };
 
 pub const SessionPreferencePatch = struct {
+    provider: ?model_provider.ProviderId = null,
     model: ?[]const u8 = null,
     effort: ?types.ReasoningEffort = null,
     fast_mode: ?bool = null,
 
     fn userSettingsPatch(self: SessionPreferencePatch) config_runtime.UserSettingsPatch {
-        return .{
-            .model = self.model,
+        var patch = config_runtime.UserSettingsPatch{
+            .provider = self.provider,
             .effort = self.effort,
             .fast_mode = self.fast_mode,
         };
+        if (self.provider) |provider| {
+            switch (provider) {
+                .gateway => patch.model = self.model,
+                .codex => patch.codex_model = self.model,
+            }
+        } else {
+            patch.model = self.model;
+        }
+        return patch;
     }
 };
 
@@ -1291,6 +1303,7 @@ pub fn Runtime(comptime App: type) type {
 
         pub fn configureStartupPreferences(
             app: *App,
+            provider: model_provider.ProviderId,
             configured_model: []const u8,
             model_source: config_runtime.ModelSource,
             selected_model: []const u8,
@@ -1301,6 +1314,7 @@ pub fn Runtime(comptime App: type) type {
                 app.alloc,
                 &app.session_persistence.workspace_preferences,
                 .{
+                    .provider = provider,
                     .model = @constCast(configured_model),
                     .effort = effort,
                     .fast_mode = fast_mode,
@@ -1787,6 +1801,12 @@ pub fn Runtime(comptime App: type) type {
 
         pub fn startResumedSessionReconciliation(app: *App) void {
             if (comptime @hasField(App, "auth")) {
+                if (comptime @hasDecl(@TypeOf(app.auth), "credentialSource")) {
+                    if (app.auth.credentialSource() == .chatgpt_subscription) {
+                        app.session.usage.clearReconciliationCredential();
+                        return;
+                    }
+                }
                 if (app.auth.apiKey()) |api_key| {
                     app.session.usage.startReconciliation(
                         app.alloc,
@@ -2853,6 +2873,7 @@ pub fn Runtime(comptime App: type) type {
                         @constCast(model)
                     else
                         null,
+                    .provider = patch.provider,
                     .effort = patch.effort,
                     .fast_mode = patch.fast_mode,
                 } },
@@ -2943,7 +2964,7 @@ pub fn Runtime(comptime App: type) type {
         /// workspace basename. The active model remains visible as secondary
         /// context, including after a model switch.
         pub fn syncTerminalTitle(app: *App) void {
-            if (comptime !@hasField(App, "selected_model")) return;
+            if (comptime !provider_runtime.supported(App)) return;
             syncTerminalTitleWith(app, terminalTitle(app));
         }
 
@@ -2951,7 +2972,7 @@ pub fn Runtime(comptime App: type) type {
             app: *App,
             provider: host_capability.TerminalTitle,
         ) void {
-            if (comptime !@hasField(App, "selected_model")) return;
+            if (comptime !provider_runtime.supported(App)) return;
             var label_buffer: [terminal_title_label_max_bytes]u8 = undefined;
             var writer: std.Io.Writer = .fixed(&label_buffer);
             const primary = cachedSessionTitle(app) orelse workspaceTerminalTitle(app);
@@ -2960,11 +2981,12 @@ pub fn Runtime(comptime App: type) type {
                 primary,
                 terminal_title_primary_max_bytes,
             ) catch return;
-            if (app.selected_model.items.len > 0) {
+            const selected_model = provider_runtime.model(app);
+            if (selected_model.len > 0) {
                 writer.writeAll(terminal_title_separator) catch return;
                 writeBoundedTerminalTitleComponent(
                     &writer,
-                    app.selected_model.items,
+                    selected_model,
                     terminal_title_model_max_bytes,
                 ) catch return;
             }
@@ -4832,15 +4854,13 @@ pub fn Runtime(comptime App: type) type {
             app: *App,
             preferences: session_codec.DurableSessionPreferences,
         ) !void {
-            app.selected_model.clearRetainingCapacity();
-            try app.selected_model.appendSlice(app.alloc, preferences.model);
+            try provider_runtime.replaceSelection(app, preferences.provider, preferences.model);
             if (app.session_persistence.process_model_override) |model| {
-                app.selected_model.clearRetainingCapacity();
-                try app.selected_model.appendSlice(app.alloc, model);
+                try provider_runtime.replaceModel(app, model);
             }
             try app.worker.syncQueuedPromptModel(
                 std.heap.c_allocator,
-                app.selected_model.items,
+                provider_runtime.model(app),
             );
             app.effort = preferences.effort;
             app.fast_mode = preferences.fast_mode;
@@ -4908,6 +4928,7 @@ fn applyPreferencePatch(
     patch: SessionPreferencePatch,
 ) !void {
     var current = target.* orelse return error.SessionPreferencesUnavailable;
+    if (patch.provider) |provider| current.provider = provider;
     if (patch.model) |model| {
         const replacement = try alloc.dupe(u8, model);
         alloc.free(current.model);
@@ -5568,6 +5589,7 @@ test "js-host resume restores transcript context preferences usage and revision"
     defer app.deinit();
     try Runtime(TestApp).configureStartupPreferences(
         &app,
+        .gateway,
         "startup/model",
         .user_global,
         "startup/model",
@@ -5623,6 +5645,7 @@ test "js-host resume store failures and missing records fall back to fresh sessi
         defer app.deinit();
         try Runtime(TestApp).configureStartupPreferences(
             &app,
+            .gateway,
             "fresh/model",
             .user_global,
             "fresh/model",
@@ -5651,6 +5674,7 @@ test "js-host picker request stays unsupported and starts fresh" {
     defer app.deinit();
     try Runtime(TestApp).configureStartupPreferences(
         &app,
+        .gateway,
         "fresh/model",
         .user_global,
         "fresh/model",
@@ -5675,6 +5699,7 @@ test "js-host completed and interrupted turns propagate revisions preserve owner
     defer app.deinit();
     try Runtime(TestApp).configureStartupPreferences(
         &app,
+        .gateway,
         "fresh/model",
         .user_global,
         "fresh/model",
@@ -5741,6 +5766,7 @@ test "js-host preference changes snapshot the updated session preferences" {
     defer app.deinit();
     try Runtime(TestApp).configureStartupPreferences(
         &app,
+        .gateway,
         "fresh/model",
         .user_global,
         "fresh/model",
@@ -5835,6 +5861,7 @@ fn testPaths(alloc: Allocator, tmp: *std.testing.TmpDir) !struct { home: []u8, w
 fn configureTestPreferences(app: *TestApp) !void {
     try Runtime(TestApp).configureStartupPreferences(
         app,
+        .gateway,
         "configured/model",
         .user_workspace,
         "configured/model",
@@ -7270,6 +7297,7 @@ test "upgrade resume restores active session with the installed version notice" 
     try configureTestPreferences(&app);
     try Runtime(TestApp).configureStartupPreferences(
         &app,
+        .gateway,
         "configured/model",
         .process_override,
         "env/model",
@@ -8746,6 +8774,7 @@ test "fresh interactive session retains one writable schema-v3 handle" {
 
     try Runtime(TestApp).configureStartupPreferences(
         &app,
+        .gateway,
         "configured/model",
         .user_workspace,
         "configured/model",
@@ -9691,6 +9720,53 @@ test "renameActiveSession persists the title to the sidecar and session index" {
     defer display.deinit(alloc);
     try std.testing.expect(display.present);
     try std.testing.expectEqualStrings("deploy pipeline fix", display.title);
+}
+
+const ReconciliationOriginUsage = struct {
+    started: usize = 0,
+    cleared: usize = 0,
+
+    fn startReconciliation(self: *@This(), _: Allocator, _: []const u8) void {
+        self.started += 1;
+    }
+
+    fn clearReconciliationCredential(self: *@This()) void {
+        self.cleared += 1;
+    }
+};
+
+const ReconciliationOriginAuth = struct {
+    source: types.CredentialSource,
+
+    fn credentialSource(self: *const @This()) ?types.CredentialSource {
+        return self.source;
+    }
+
+    fn apiKey(_: *const @This()) ?[]const u8 {
+        return "origin-bound-token";
+    }
+};
+
+const ReconciliationOriginApp = struct {
+    alloc: Allocator = std.testing.allocator,
+    auth: ReconciliationOriginAuth,
+    session: struct { usage: ReconciliationOriginUsage = .{} } = .{},
+};
+
+test "resumed ChatGPT sessions never start Gateway usage reconciliation" {
+    var chatgpt = ReconciliationOriginApp{
+        .auth = .{ .source = .chatgpt_subscription },
+    };
+    Runtime(ReconciliationOriginApp).startResumedSessionReconciliation(&chatgpt);
+    try std.testing.expectEqual(@as(usize, 0), chatgpt.session.usage.started);
+    try std.testing.expectEqual(@as(usize, 1), chatgpt.session.usage.cleared);
+
+    var gateway = ReconciliationOriginApp{
+        .auth = .{ .source = .ai_gateway_api_key },
+    };
+    Runtime(ReconciliationOriginApp).startResumedSessionReconciliation(&gateway);
+    try std.testing.expectEqual(@as(usize, 1), gateway.session.usage.started);
+    try std.testing.expectEqual(@as(usize, 0), gateway.session.usage.cleared);
 }
 
 test "ensureCachedSessionTitle derives from the first prompt and then freezes" {

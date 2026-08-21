@@ -2319,6 +2319,7 @@ fn captureAdmission(
         .parent_id = request.parent_id,
         .source_id = request.source_id,
         .model = request.preferences.model,
+        .provider = request.preferences.provider,
         .effort = request.preferences.effort,
         .permission_mode = snapshot.permission_mode,
         .sandbox_backend = snapshot.sandbox_backend,

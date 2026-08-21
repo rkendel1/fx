@@ -361,13 +361,15 @@ pub fn Bindings(comptime App: type) type {
             alloc: std.mem.Allocator,
             source: credentials.Source,
             mode: auth_runtime.CredentialRefreshMode,
+            expected_account_id: ?[]const u8,
         ) !?[]u8 {
             const app: *App = @ptrCast(@alignCast(raw_ctx));
-            return auth_runtime.refreshFxLoginToken(
+            return auth_runtime.refreshCredentialTokenForAccount(
                 app.auth.oauthTransport(),
                 alloc,
                 source,
                 mode,
+                expected_account_id,
             );
         }
 

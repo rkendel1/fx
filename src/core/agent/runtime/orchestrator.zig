@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const agent_steps = @import("../../config/agent_steps.zig");
 const model_capabilities = @import("../../config/model_capabilities.zig");
+const model_provider = @import("../../config/model_provider.zig");
 const types = @import("../../shared/types.zig");
 const worker_runtime = @import("../worker_runtime.zig");
 const session_runtime = @import("../../session/session.zig");
@@ -14,6 +15,7 @@ const file_mutation_contract = @import("../../tooling/file_mutation_contract.zig
 const io_mod = @import("../../shared/io.zig");
 const host_target = @import("../../hosts/target.zig");
 const secret = @import("../../auth/secret.zig");
+const credentials = @import("../../auth/credentials.zig");
 const tool_dispatch = @import("../../tooling/tool_dispatch.zig");
 const tool_result_errors = @import("../../tooling/tool_result_errors.zig");
 const tooling_tool_admission = @import("../../tooling/tool_admission.zig");
@@ -637,6 +639,7 @@ fn materializeConfirmedProviderTools(
         within_turn_suffix,
         null,
         novel_calls,
+        completion.provider_state_json,
     );
     var batch: runtime_tool_batch.StepBatchState = .{};
     for (novel_calls) |call| {
@@ -1123,10 +1126,11 @@ fn restoredConsumedAttempts(
 
 fn recoverySelectionChanged(
     checkpoint: session_codec.RecoveryCheckpoint,
+    selected_provider: model_provider.ProviderId,
     selected_model: []const u8,
     selected_fast_mode: bool,
 ) bool {
-    return !std.mem.eql(
+    return checkpoint.route_provider != selected_provider or !std.mem.eql(
         u8,
         checkpoint.route_model,
         selected_model,
@@ -1235,6 +1239,7 @@ fn persistRecoveryCheckpoint(
         .action = checkpointAction(strategy),
         .tool_state = checkpointToolState(tool_evidence),
         .route_model = @constCast(route_model),
+        .route_provider = job.provider,
         .requested_fast_mode = requested_fast_mode,
         .fast_mode = fast_mode,
         .max_provider_attempts = attempt_limit,
@@ -1419,10 +1424,10 @@ fn refreshGatewayCredentialForJob(
     trace_ctx: TraceContext,
 ) !bool {
     const source = job.credential_source orelse return false;
-    if (source != .fx_login) return false;
+    if (!credentials.sourceRefreshable(source)) return false;
     const refresh = deps.refresh_gateway_credential orelse return false;
 
-    const refreshed = refresh(deps.ctx, alloc, source, mode) catch |err| {
+    const refreshed = refresh(deps.ctx, alloc, source, mode, job.account_id) catch |err| {
         if (err == error.OutOfMemory) return err;
         debug_trace.eventf(
             "gateway",
@@ -1436,11 +1441,15 @@ fn refreshGatewayCredentialForJob(
     const previous_api_key = active_api_key.*;
     if (comptime !host_target.is_wasm) {
         if (deps.usage) |usage| {
-            usage.refreshReconciliationCredential(
-                deps.usage_allocator,
-                previous_api_key,
-                refreshed,
-            );
+            if (source == .chatgpt_subscription) {
+                usage.clearReconciliationCredential();
+            } else {
+                usage.refreshReconciliationCredential(
+                    deps.usage_allocator,
+                    previous_api_key,
+                    refreshed,
+                );
+            }
         }
     }
     if (owned_api_key.*) |old| secret.zeroAndFree(alloc, old);
@@ -2594,7 +2603,7 @@ fn processQueuedPromptLoop(
         0;
     const selected_fast_mode = config.fast_mode;
     const selection_changed = if (job.recovery_checkpoint) |checkpoint|
-        recoverySelectionChanged(checkpoint, job.model, selected_fast_mode)
+        recoverySelectionChanged(checkpoint, job.provider, job.model, selected_fast_mode)
     else
         false;
     const restored_budget_exhausted = if (job.recovery_checkpoint) |checkpoint|
@@ -2897,6 +2906,19 @@ fn processQueuedPromptLoop(
                 config.first_call_tool_choice
             else
                 .auto;
+            var verified_images: std.ArrayList(image_attachments.VerifiedSnapshot) = .empty;
+            if (job.provider == .codex and job.images.len > 0 and
+                request_capabilities.supports_vision and request_capabilities.supports_file_input)
+            {
+                try verified_images.ensureTotalCapacity(overlay_arena, job.images.len);
+                for (job.images) |attachment| {
+                    verified_images.appendAssumeCapacity(try image_attachments.loadVerifiedSnapshot(
+                        overlay_arena,
+                        attachment,
+                        .{ .cancel_flag = config.cancel_flag },
+                    ));
+                }
+            }
             const request_payload = deps.agent_stream_provider.build(
                 overlay_arena,
                 .{
@@ -2910,6 +2932,10 @@ fn processQueuedPromptLoop(
                     .provider_options = provider_opts,
                     .max_output_tokens = request_max_output_tokens(request_capabilities),
                     .budget = .{ .cancel_flag = config.cancel_flag },
+                    .verified_images = if (verified_images.items.len > 0)
+                        verified_images.items
+                    else
+                        null,
                 },
             ) catch |err| {
                 if (err == error.Cancelled) {
@@ -2945,27 +2971,29 @@ fn processQueuedPromptLoop(
                 request_messages.len,
                 config.gateway_tools_json,
             );
-            try persistRecoveryCheckpoint(
-                deps,
-                arena,
-                job,
-                within_turn_suffix.items,
-                stream_ctx.raw_text.items,
-                gateway_model,
-                selected_fast_mode,
-                route_fast_mode,
-                semantic_limit,
-                semantic_attempt,
-                true,
-                recovery_cause,
-                recovery_strategy,
-                effectiveRecoveryToolEvidence(
-                    preserved_tool_evidence,
-                    null,
-                    &stream_ctx,
-                ),
-                step_ctx,
-            );
+            if (job.provider != .codex) {
+                try persistRecoveryCheckpoint(
+                    deps,
+                    arena,
+                    job,
+                    within_turn_suffix.items,
+                    stream_ctx.raw_text.items,
+                    gateway_model,
+                    selected_fast_mode,
+                    route_fast_mode,
+                    semantic_limit,
+                    semantic_attempt,
+                    true,
+                    recovery_cause,
+                    recovery_strategy,
+                    effectiveRecoveryToolEvidence(
+                        preserved_tool_evidence,
+                        null,
+                        &stream_ctx,
+                    ),
+                    step_ctx,
+                );
+            }
 
             const gateway_wait_started_ms = io_mod.milliTimestamp();
             var gateway_delivery = runtime_gateway_step.DeliveryCertainty.init();
@@ -2974,6 +3002,7 @@ fn processQueuedPromptLoop(
                 deps.agent_stream_provider,
                 arena,
                 active_api_key,
+                job.credential_source,
                 job.gateway_team,
                 lifecycle.scope.session_id,
                 gateway_model,
@@ -3318,6 +3347,68 @@ fn processQueuedPromptLoop(
                 gateway_delivery.load(),
             );
             stream_result_set = true;
+            if (job.provider == .codex and
+                stream_result.status == .unauthorized and
+                !auth_retry_used and
+                stream_ctx.raw_text.items.len == 0 and
+                !stream_ctx.saw_tool_start and
+                stream_result.completion.tool_calls.len == 0)
+            {
+                if (try refreshGatewayCredentialForJob(
+                    deps,
+                    std.heap.c_allocator,
+                    job,
+                    .force,
+                    &active_api_key,
+                    &owned_refreshed_api_key,
+                    step_ctx,
+                )) {
+                    auth_retry_used = true;
+                    var replay_delivery = runtime_gateway_step.DeliveryCertainty.init();
+                    var replay_evidence: runtime_gateway_step.AttemptEvidence = .{};
+                    stream_result = try runtime_gateway_step.streamGatewayCompletion(
+                        deps.agent_stream_provider,
+                        arena,
+                        active_api_key,
+                        job.credential_source,
+                        job.gateway_team,
+                        lifecycle.scope.session_id,
+                        gateway_model,
+                        config.gateway_retry_count,
+                        config.gateway_chat_url,
+                        request_payload,
+                        deps.cooperative_transport_pulse,
+                        &replay_delivery,
+                        &replay_evidence,
+                        @ptrCast(&stream_ctx),
+                        runtime_assistant_stream.onStreamContentChunk,
+                        if (vision_mode == .required)
+                            onRequiredVisionStreamToolStart
+                        else
+                            runtime_assistant_stream.onStreamToolStart,
+                        runtime_assistant_stream.onStreamReasoningChunk,
+                        runtime_assistant_stream.onStreamToolInputChunk,
+                        config.cancel_flag,
+                        deps.usage,
+                        deps.usage_allocator,
+                        step_ctx,
+                        null,
+                        .agent,
+                    );
+                    parent_turn_delivery.observeGatewayDelivery(
+                        deps,
+                        overlay_arena,
+                        replay_delivery.load(),
+                    );
+                    debug_trace.eventf(
+                        "auth",
+                        "codex_request_replayed",
+                        step_ctx,
+                        "payload_bytes={d} semantic_attempt={d}",
+                        .{ request_payload.len, semantic_attempt + 1 },
+                    );
+                }
+            }
             if (recovery_strategy == .reconcile_tool and
                 stream_result.status == .ok and
                 (stream_result.completion.tool_calls.len > 0 or
@@ -3386,35 +3477,38 @@ fn processQueuedPromptLoop(
                 );
             }
             const settled_attempts = semantic_attempt + 1;
-            try persistRecoveryCheckpoint(
-                deps,
-                arena,
-                job,
-                within_turn_suffix.items,
-                try recoveryCheckpointAssistantSource(
+            if (job.provider != .codex or stream_result.status != .unauthorized) {
+                try persistRecoveryCheckpoint(
+                    deps,
                     arena,
-                    stop_state,
-                    stream_ctx.raw_text.items,
-                ),
-                gateway_model,
-                selected_fast_mode,
-                route_fast_mode,
-                semantic_limit,
-                settled_attempts,
-                false,
-                recovery_cause,
-                recovery_strategy,
-                effectiveRecoveryToolEvidence(
-                    preserved_tool_evidence,
-                    stream_result.completion,
-                    &stream_ctx,
-                ),
-                step_ctx,
-            );
+                    job,
+                    within_turn_suffix.items,
+                    try recoveryCheckpointAssistantSource(
+                        arena,
+                        stop_state,
+                        stream_ctx.raw_text.items,
+                    ),
+                    gateway_model,
+                    selected_fast_mode,
+                    route_fast_mode,
+                    semantic_limit,
+                    settled_attempts,
+                    false,
+                    recovery_cause,
+                    recovery_strategy,
+                    effectiveRecoveryToolEvidence(
+                        preserved_tool_evidence,
+                        stream_result.completion,
+                        &stream_ctx,
+                    ),
+                    step_ctx,
+                );
+            }
             runtime_assistant_stream.pushTokenProgressUpdate(&stream_ctx, summary_accumulator.reconcileTokenRequest(stream_result.completion.usage, stream_result.completion.delivery_ambiguous)) catch |progress_err| {
                 debug_trace.logf("agent", "token progress publication failed source=gateway_usage err={s}", .{@errorName(progress_err)});
             };
             if (stream_result.status == .unauthorized and
+                job.provider != .codex and
                 !auth_retry_used and
                 semantic_attempt + 1 < semantic_limit)
             {
@@ -4484,6 +4578,7 @@ fn processQueuedPromptLoop(
             else
                 partial_assistant,
             .tool_calls = effective_tool_calls,
+            .provider_state_json = completion.provider_state_json,
         };
 
         var preparation_batch = tool_preparation.ReadyCallBatch.init(
@@ -4715,6 +4810,7 @@ fn processQueuedPromptLoop(
             &within_turn_suffix,
             if (terminal_provider_completion) null else completion.content,
             effective_tool_calls,
+            completion.provider_state_json,
         );
 
         const step_has_content = !terminal_provider_completion and completion.content != null and completion.content.?.len > 0;

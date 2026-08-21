@@ -13,6 +13,7 @@ const permissions = @import("../permissions/permissions.zig");
 const sandbox = @import("../permissions/sandbox.zig");
 const worker_runtime = @import("../agent/worker_runtime.zig");
 const prompt_history_runtime = @import("../app/prompt_history_runtime.zig");
+const provider_runtime = @import("../app/provider_runtime.zig");
 const tool_dispatch = @import("../tooling/tool_dispatch.zig");
 const text_utils = @import("../shared/text_utils.zig");
 const types = @import("../shared/types.zig");
@@ -271,7 +272,8 @@ pub fn Commands(comptime App: type) type {
         pub fn showStatus(app: *App) !void {
             const auth = app.auth.statusSnapshot();
             const text = try (output_contracts.StatusSnapshot{
-                .model = app.selected_model.items,
+                .model = provider_runtime.model(app),
+                .provider = provider_runtime.provider(app),
                 .update_channel = update_channel_label(app),
                 .build_channel = if (@hasDecl(App, "build_update_channel")) App.build_update_channel.label() else "stable",
                 .build_revision = if (@hasDecl(App, "build_revision")) App.build_revision else "",
@@ -336,7 +338,7 @@ pub fn Commands(comptime App: type) type {
 
         pub fn handleModel(app: *App, query: []const u8) !void {
             if (query.len == 0) {
-                try app.writeDomainNotice(.{ .topic = "model", .tone = .neutral, .body = app.selected_model.items }, true);
+                try app.writeDomainNotice(.{ .topic = "model", .tone = .neutral, .body = provider_runtime.model(app) }, true);
                 return;
             }
 
@@ -683,7 +685,7 @@ pub fn Commands(comptime App: type) type {
         }
 
         pub fn toggleFast(app: *App) !void {
-            try toggleFastForModel(app, app.selected_model.items, true);
+            try toggleFastForModel(app, provider_runtime.model(app), true);
         }
 
         fn toggleFastForModel(app: *App, model: []const u8, announce: bool) !void {
@@ -716,8 +718,8 @@ pub fn Commands(comptime App: type) type {
                 .{
                     if (previous) "true" else "false",
                     if (app.fast_mode) "true" else "false",
-                    app.selected_model.items,
-                    if (model_capabilities.resolveForApp(App, app, app.selected_model.items).supports_fast_mode) "true" else "false",
+                    provider_runtime.model(app),
+                    if (model_capabilities.resolveForApp(App, app, provider_runtime.model(app)).supports_fast_mode) "true" else "false",
                 },
             );
 
@@ -929,7 +931,7 @@ pub fn Commands(comptime App: type) type {
 
             const startup_scrollback_label = if (settings.startup_scrollback orelse true) "on" else "off";
             const msg = try std.fmt.allocPrint(app.alloc, "model: {s}\nmodel_config_source: {s}\npermission_mode: {s}\nworkspace: {s}\nstep_limit: {d}\nstartup_scrollback: {s}", .{
-                app.selected_model.items,
+                provider_runtime.model(app),
                 @tagName(detailed.sources.model),
                 permissions.permissionModeLabel(app.permission_engine.mode),
                 app.workspace_root,
@@ -1116,14 +1118,10 @@ pub fn Commands(comptime App: type) type {
         }
 
         fn setResolvedModelRuntime(app: *App, resolved: []const u8, announce: bool) !void {
-            if (!std.mem.eql(u8, app.selected_model.items, resolved)) {
-                const stable = try app.alloc.dupe(u8, resolved);
-                defer app.alloc.free(stable);
-                try app.selected_model.ensureTotalCapacity(app.alloc, stable.len);
-                app.selected_model.clearRetainingCapacity();
-                app.selected_model.appendSliceAssumeCapacity(stable);
+            if (!std.mem.eql(u8, provider_runtime.model(app), resolved)) {
+                try provider_runtime.replaceModel(app, resolved);
             }
-            const selected = app.selected_model.items;
+            const selected = provider_runtime.model(app);
             try app.worker.syncQueuedPromptModel(std.heap.c_allocator, selected);
             if (comptime @hasDecl(App, "persistAcceptedModel")) try app.persistAcceptedModel(selected);
             // Keep the session or workspace discriminator while updating the

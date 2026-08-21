@@ -176,7 +176,10 @@ function withTimeout(promise, message, timeoutMs) {
 try {
   await runCase("incremental stream", "transport=mock&autorun=say%20hello&chunk-delay=75&model=sdk%2Fchrome-model&mode=code", (result) => {
     const modelChunks = result.chunks.filter((chunk) => !chunk.startsWith("[context]"));
-    expect(result.stopReason === "end_turn", `unexpected stop reason ${result.stopReason}`);
+    expect(
+      result.stopReason === "end_turn",
+      `unexpected stop reason ${result.stopReason}; state=${result.state}; error=${result.error}`,
+    );
     expect(modelChunks.join("").trimEnd() === "hello world", `unexpected chunks ${JSON.stringify(result.chunks)}`);
     expect(modelChunks.filter((chunk) => chunk.trim()).length >= 2, "browser stream was buffered");
     expect(result.fetchCalls === 1, `expected one prompt fetch, got ${result.fetchCalls}`);
