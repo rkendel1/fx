@@ -494,7 +494,7 @@ fn expectPermissionDeniedToolResult(gateway: *const FakeGateway, index: usize, t
 fn expectedPermissionDeniedMessage(reason: types.ToolPermissionDenialReason) ?[]const u8 {
     return switch (reason) {
         .user_denied => "Permission denied by user",
-        .auto_denied => "Permission denied by auto mode classifier",
+        .auto_denied => "Blocked by automatic safety policy",
         .policy_denied, .permission_required => null,
     };
 }

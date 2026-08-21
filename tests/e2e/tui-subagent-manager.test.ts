@@ -1438,6 +1438,88 @@ describe.skipIf(!tmuxAvailable())("tui: Agents & processes", () => {
   );
 
   test(
+    "persistent auto child replans a direct delete before review",
+    async () => {
+      const fixture = createFixture();
+      writeFileSync(
+        join(fixture.home, ".fx", "settings.json"),
+        JSON.stringify({ sandbox: "none", permission_mode: "auto", permission: {} }),
+      );
+      const childPrompt = "AUTO_DELETE_CHILD_PROMPT";
+      const marker = join(fixture.workspace, "auto-child-keep.txt");
+      writeFileSync(marker, "keep\n");
+      const gateway = startDynamicFakeGateway((body) => {
+        if (body.includes('"toolCallId":"auto_delete_create"')) {
+          return fakeGatewayFinalText("AUTO_DELETE_PARENT_READY");
+        }
+        if (body.includes('"toolCallId":"auto_delete_file"')) {
+          return fakeGatewayFinalText("AUTO_DELETE_CHILD_COMPLETE");
+        }
+        if (body.includes(childPrompt)) {
+          return fakeGatewayToolCall("auto_delete_file", "delete_file", {
+            path: marker,
+          });
+        }
+        return fakeGatewayToolCall("auto_delete_create", "subagent", {
+          command: {
+            create: {
+              name: "auto-delete-child",
+              mode: "persistent",
+              prompt: childPrompt,
+              permission_mode: "auto",
+            },
+          },
+        });
+      }, {
+        classifierDecision: "allow",
+        models: [{ id: FAKE_GATEWAY_MODEL, type: "language", tags: ["tool-use"] }],
+      });
+      try {
+        session = await TmuxSession.create({
+          cmd: FX_BIN,
+          cwd: fixture.workspace,
+          env: {
+            HOME: fixture.home,
+            AI_GATEWAY_API_KEY: "auto-delete-child-key",
+            VERCEL_OIDC_TOKEN: undefined,
+            FX_GATEWAY_BASE_URL: gateway.baseUrl,
+            FX_GATEWAY_CHAT_URL: gateway.chatUrl,
+            FX_MODEL: FAKE_GATEWAY_MODEL,
+            FX_AUTO_UPGRADE: "0",
+            FX_DISABLE_KEYCHAIN: "1",
+            FX_SKIP_ONBOARDING: "1",
+            FX_SOUND: "0",
+            NO_COLOR: "1",
+          },
+          width: 112,
+          height: 32,
+          stderrPath: fixture.stderrPath,
+        });
+        const active = session;
+        await active.waitForComposer(TIMEOUT);
+        await active.sendText("Create the auto-delete child.");
+        await active.waitForText("AUTO_DELETE_PARENT_READY", TIMEOUT);
+        const denialDeadline = Date.now() + TIMEOUT;
+        while (
+          !gateway.requests.some((request) => request.body.includes("auto_denied")) &&
+          Date.now() < denialDeadline
+        ) {
+          await Bun.sleep(25);
+        }
+        expect(gateway.requests.some((request) =>
+          request.body.includes("auto_denied")
+        )).toBe(true);
+        expect(readFileSync(marker, "utf8")).toBe("keep\n");
+        expect(gateway.classifierRequests).toHaveLength(0);
+        expect(readFileSync(fixture.stderrPath, "utf8")).toBe("");
+      } finally {
+        gateway.stop();
+      }
+    },
+    60_000,
+  );
+
+  test(
     "child file always approval reuses canonical scope and keeps external writes governed",
     async () => {
       const fixture = createFixture();
