@@ -411,6 +411,12 @@ def cmd_run(args) -> int:
         if not p.exists():
             print(f"missing {p}", file=sys.stderr)
             return 2
+    # `chip work` verifies PAX before asking a model. Without it the Rust side makes zero requests and
+    # every work scenario "fails", which would read as a parity difference. Refuse to run instead.
+    pax = subprocess.run(["pax", "--version"], capture_output=True, text=True) if shutil.which("pax") else None
+    if pax is None or pax.returncode != 0:
+        print("pax is required on PATH: `chip work` verifies it before it asks a model", file=sys.stderr)
+        return 2
     scen: dict = {}
     for sc in corpus["scenarios"]:
         try:
