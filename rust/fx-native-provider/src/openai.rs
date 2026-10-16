@@ -118,6 +118,9 @@ impl Wire for OpenAiWire {
             "stream": true,
             "stream_options": {"include_usage": true},
         });
+        if let Some(enable) = self.config.template_thinking {
+            body["chat_template_kwargs"] = json!({"enable_thinking": enable});
+        }
         if let Some(max) = request.options.max_output_tokens {
             body["max_tokens"] = json!(max);
         }

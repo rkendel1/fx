@@ -703,3 +703,44 @@ fn configuration_refuses_cleartext_remote_hosts_and_embedded_credentials() {
     assert!(OpenAiConfig::new("http://127.0.0.1:1/v1", key()).is_ok());
     assert!(OpenAiConfig::new("https://api.example.test/v1/", key()).is_ok());
 }
+
+fn body_with_thinking(setting: Option<bool>) -> serde_json::Value {
+    let server = Server::start(vec![sse(vec![delta("ok"), finish("stop"), done()])]);
+    let mut config = OpenAiConfig::without_key(&server.base_url).unwrap();
+    if let Some(enable) = setting {
+        config = config.with_chat_template_thinking(enable);
+    }
+    let mut capability = SingleAttemptCapability::new(OpenAiCompatible::new(config));
+    let report = execute(
+        &mut capability,
+        &request(),
+        &Limits::DEFAULT,
+        &mut TestHost::default(),
+    );
+    completion(&report);
+    serde_json::from_str(&server.recorded()[0].body).unwrap()
+}
+
+#[test]
+fn template_thinking_is_a_top_level_chat_template_kwargs_member_in_both_states() {
+    for enable in [false, true] {
+        let body = body_with_thinking(Some(enable));
+        assert_eq!(
+            body["chat_template_kwargs"],
+            serde_json::json!({ "enable_thinking": enable })
+        );
+        // Servers read it from the top level; a nested `extra_body` is ignored by them.
+        assert!(body.get("extra_body").is_none());
+        // A request field, never prompt text.
+        assert_eq!(body["messages"], body_with_thinking(None)["messages"]);
+    }
+}
+
+#[test]
+fn template_thinking_is_absent_unless_the_host_sets_it() {
+    assert!(
+        body_with_thinking(None)
+            .get("chat_template_kwargs")
+            .is_none()
+    );
+}

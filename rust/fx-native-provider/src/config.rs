@@ -138,6 +138,7 @@ macro_rules! shared_builders {
 #[derive(Clone, Debug)]
 pub struct OpenAiConfig {
     pub(crate) common: Common,
+    pub(crate) template_thinking: Option<bool>,
 }
 
 impl OpenAiConfig {
@@ -152,6 +153,7 @@ impl OpenAiConfig {
     pub fn new(base_url: &str, api_key: Secret) -> Result<Self, ConfigError> {
         Ok(Self {
             common: Common::new(base_url, Some(api_key))?,
+            template_thinking: None,
         })
     }
 
@@ -160,7 +162,19 @@ impl OpenAiConfig {
     pub fn without_key(base_url: &str) -> Result<Self, ConfigError> {
         Ok(Self {
             common: Common::new(base_url, None)?,
+            template_thinking: None,
         })
+    }
+
+    /// Sends `"chat_template_kwargs":{"enable_thinking":<enable>}` at the top level of every
+    /// request body, which is where servers that render a chat template (LM Studio, vLLM and
+    /// similar, for models such as Qwen) read it. This is a host setting for that vendor
+    /// extension, not FX's reasoning effort, and it is off unless set because servers that do
+    /// not know the field may reject it.
+    #[must_use]
+    pub fn with_chat_template_thinking(mut self, enable: bool) -> Self {
+        self.template_thinking = Some(enable);
+        self
     }
 
     shared_builders!();
