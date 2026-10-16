@@ -1,0 +1,843 @@
+{
+  "corpus": "agent-loop.v1",
+  "corpus_sha256": "3b838e65e24b864ee63aeb8b5eaecf8db241c6b33f1698bb23a8df3927d1199d",
+  "gate": {
+    "invalid_scenarios": [],
+    "retirement_ready": false,
+    "run_is_valid": true,
+    "unapproved_differences": [
+      {
+        "class": "intentional_change_requires_approval",
+        "field": "terminal",
+        "scenario": "cut_stream"
+      },
+      {
+        "class": "intentional_change_requires_approval",
+        "field": "inference_requests",
+        "scenario": "cut_stream"
+      },
+      {
+        "class": "intentional_change_requires_approval",
+        "field": "answer",
+        "scenario": "cut_stream"
+      },
+      {
+        "class": "intentional_change_requires_approval",
+        "field": "terminal",
+        "scenario": "failure_after_tool"
+      },
+      {
+        "class": "intentional_change_requires_approval",
+        "field": "inference_requests",
+        "scenario": "failure_after_tool"
+      },
+      {
+        "class": "intentional_change_requires_approval",
+        "field": "answer",
+        "scenario": "failure_after_tool"
+      },
+      {
+        "class": "intentional_change_requires_approval",
+        "field": "terminal",
+        "scenario": "http_429"
+      },
+      {
+        "class": "intentional_change_requires_approval",
+        "field": "inference_requests",
+        "scenario": "http_429"
+      },
+      {
+        "class": "intentional_change_requires_approval",
+        "field": "answer",
+        "scenario": "http_429"
+      },
+      {
+        "class": "intentional_change_requires_approval",
+        "field": "terminal",
+        "scenario": "http_500"
+      },
+      {
+        "class": "intentional_change_requires_approval",
+        "field": "inference_requests",
+        "scenario": "http_500"
+      },
+      {
+        "class": "intentional_change_requires_approval",
+        "field": "answer",
+        "scenario": "http_500"
+      },
+      {
+        "class": "intentional_change_requires_approval",
+        "field": "answers_without_saving",
+        "scenario": "persistence_failure"
+      },
+      {
+        "class": "unsupported",
+        "field": "resumes_the_interrupted_model_response",
+        "scenario": "recovery_after_kill"
+      },
+      {
+        "class": "limitation",
+        "field": "side_effects_replayed_on_rerun",
+        "scenario": "recovery_after_kill"
+      },
+      {
+        "class": "intentional_change_requires_approval",
+        "field": "terminal",
+        "scenario": "shell_not_executed"
+      },
+      {
+        "class": "intentional_change_requires_approval",
+        "field": "terminal",
+        "scenario": "unknown_tool"
+      },
+      {
+        "class": "intentional_change_requires_approval",
+        "field": "inference_requests",
+        "scenario": "unknown_tool"
+      },
+      {
+        "class": "intentional_change_requires_approval",
+        "field": "side_effects",
+        "scenario": "write_outside_workspace"
+      },
+      {
+        "class": "intentional_change_requires_approval",
+        "field": "tool_executions",
+        "scenario": "write_outside_workspace"
+      },
+      {
+        "class": "intentional_change_requires_approval",
+        "field": "terminal",
+        "scenario": "write_outside_workspace"
+      },
+      {
+        "class": "intentional_change_requires_approval",
+        "field": "inference_requests",
+        "scenario": "write_outside_workspace"
+      }
+    ],
+    "unsupported_behaviors": [
+      "permission_modes",
+      "provider_native_tool_loop",
+      "silent_tool_continuation",
+      "step_limit_pause",
+      "images_and_vision",
+      "subagents_mcp_skills_memory",
+      "interactive_permission_prompts",
+      "cancel_after_tool",
+      "persistence_failure_after_work_ran"
+    ]
+  },
+  "scenarios": {
+    "basic_turn": {
+      "about": "One text answer, one inference, a completed turn.",
+      "requirement": "Basic turn",
+      "rust": {
+        "answer": "hello from the model",
+        "followup_carries_tool_result": false,
+        "inference_requests": 1,
+        "side_effects": {
+          "outside_write": false,
+          "shell_marker": false
+        },
+        "terminal": "completed",
+        "terminal_detail": "completed",
+        "tool_executions": []
+      },
+      "verdict": {
+        "differences": [],
+        "matched": [
+          "terminal",
+          "answer",
+          "inference_requests",
+          "tool_executions"
+        ],
+        "stale": [],
+        "status": "match",
+        "unclassified": []
+      },
+      "zig": {
+        "answer": "hello from the model",
+        "followup_carries_tool_result": false,
+        "inference_requests": 1,
+        "side_effects": {
+          "outside_write": false,
+          "shell_marker": false
+        },
+        "terminal": "completed",
+        "terminal_detail": "completed",
+        "tool_executions": []
+      }
+    },
+    "cancel_mid_stream": {
+      "about": "SIGINT while the model's reply is streaming and then silent. Nothing may be reported as completed and no tool may run.",
+      "requirement": "Cancellation",
+      "rust": {
+        "answer": null,
+        "followup_carries_tool_result": false,
+        "inference_requests": 1,
+        "side_effects": {
+          "outside_write": false,
+          "shell_marker": false
+        },
+        "terminal": "killed_by_signal",
+        "terminal_detail": "killed_by_signal",
+        "tool_executions": []
+      },
+      "verdict": {
+        "differences": [],
+        "matched": [
+          "terminal",
+          "answer",
+          "inference_requests",
+          "tool_executions"
+        ],
+        "stale": [],
+        "status": "match",
+        "unclassified": []
+      },
+      "zig": {
+        "answer": null,
+        "followup_carries_tool_result": false,
+        "inference_requests": 1,
+        "side_effects": {
+          "outside_write": false,
+          "shell_marker": false
+        },
+        "terminal": "killed_by_signal",
+        "terminal_detail": "killed_by_signal",
+        "tool_executions": []
+      }
+    },
+    "cut_stream": {
+      "about": "A stream cut off before its terminal marker, then a valid reply is available.",
+      "requirement": "Provider failure",
+      "rust": {
+        "answer": null,
+        "followup_carries_tool_result": false,
+        "inference_requests": 1,
+        "side_effects": {
+          "outside_write": false,
+          "shell_marker": false
+        },
+        "terminal": "not_completed",
+        "terminal_detail": "exit 1",
+        "tool_executions": []
+      },
+      "verdict": {
+        "differences": [
+          {
+            "class": "intentional_change_requires_approval",
+            "field": "terminal",
+            "rust": "not_completed",
+            "why": "D1: Zig repeats after a cut stream; Chip does not.",
+            "zig": "completed"
+          },
+          {
+            "class": "intentional_change_requires_approval",
+            "field": "inference_requests",
+            "rust": 1,
+            "why": "D1.",
+            "zig": 2
+          },
+          {
+            "class": "intentional_change_requires_approval",
+            "field": "answer",
+            "rust": null,
+            "why": "D1.",
+            "zig": "partial hello after the cut stream"
+          }
+        ],
+        "matched": [
+          "tool_executions"
+        ],
+        "stale": [],
+        "status": "classified_differences",
+        "unclassified": []
+      },
+      "zig": {
+        "answer": "partial hello after the cut stream",
+        "followup_carries_tool_result": false,
+        "inference_requests": 2,
+        "side_effects": {
+          "outside_write": false,
+          "shell_marker": false
+        },
+        "terminal": "completed",
+        "terminal_detail": "completed",
+        "tool_executions": []
+      }
+    },
+    "failure_after_tool": {
+      "about": "A tool runs, then the follow-up request fails with a 500. The tool must not run twice.",
+      "requirement": "Provider failure",
+      "rust": {
+        "answer": null,
+        "followup_carries_tool_result": true,
+        "inference_requests": 2,
+        "side_effects": {
+          "outside_write": false,
+          "shell_marker": false
+        },
+        "terminal": "not_completed",
+        "terminal_detail": "failed",
+        "tool_executions": [
+          "read"
+        ]
+      },
+      "verdict": {
+        "differences": [
+          {
+            "class": "intentional_change_requires_approval",
+            "field": "terminal",
+            "rust": "not_completed",
+            "why": "D1: Zig repeats the follow-up request and completes; Chip stops with the failure.",
+            "zig": "completed"
+          },
+          {
+            "class": "intentional_change_requires_approval",
+            "field": "inference_requests",
+            "rust": 2,
+            "why": "D1.",
+            "zig": 3
+          },
+          {
+            "class": "intentional_change_requires_approval",
+            "field": "answer",
+            "rust": null,
+            "why": "D1.",
+            "zig": "note.txt says fixture-token-7f3a"
+          }
+        ],
+        "matched": [
+          "tool_executions"
+        ],
+        "stale": [],
+        "status": "classified_differences",
+        "unclassified": []
+      },
+      "zig": {
+        "answer": "note.txt says fixture-token-7f3a",
+        "followup_carries_tool_result": true,
+        "inference_requests": 3,
+        "side_effects": {
+          "outside_write": false,
+          "shell_marker": false
+        },
+        "terminal": "completed",
+        "terminal_detail": "completed",
+        "tool_executions": [
+          "read"
+        ]
+      }
+    },
+    "http_400": {
+      "about": "A client error: not retried by either side; the turn fails.",
+      "requirement": "Provider failure",
+      "rust": {
+        "answer": null,
+        "followup_carries_tool_result": false,
+        "inference_requests": 1,
+        "side_effects": {
+          "outside_write": false,
+          "shell_marker": false
+        },
+        "terminal": "not_completed",
+        "terminal_detail": "exit 1",
+        "tool_executions": []
+      },
+      "verdict": {
+        "differences": [],
+        "matched": [
+          "terminal",
+          "inference_requests",
+          "tool_executions"
+        ],
+        "stale": [],
+        "status": "match",
+        "unclassified": []
+      },
+      "zig": {
+        "answer": null,
+        "followup_carries_tool_result": false,
+        "inference_requests": 1,
+        "side_effects": {
+          "outside_write": false,
+          "shell_marker": false
+        },
+        "terminal": "not_completed",
+        "terminal_detail": "failed",
+        "tool_executions": []
+      }
+    },
+    "http_429": {
+      "about": "A rate limit on the first request, then a valid reply is available.",
+      "requirement": "Provider failure",
+      "rust": {
+        "answer": null,
+        "followup_carries_tool_result": false,
+        "inference_requests": 1,
+        "side_effects": {
+          "outside_write": false,
+          "shell_marker": false
+        },
+        "terminal": "not_completed",
+        "terminal_detail": "exit 1",
+        "tool_executions": []
+      },
+      "verdict": {
+        "differences": [
+          {
+            "class": "intentional_change_requires_approval",
+            "field": "terminal",
+            "rust": "not_completed",
+            "why": "D1: Zig repeats the request after an ambiguous HTTP error and completes; Chip makes one request and surfaces the failure.",
+            "zig": "completed"
+          },
+          {
+            "class": "intentional_change_requires_approval",
+            "field": "inference_requests",
+            "rust": 1,
+            "why": "D1, same cause.",
+            "zig": 2
+          },
+          {
+            "class": "intentional_change_requires_approval",
+            "field": "answer",
+            "rust": null,
+            "why": "D1, same cause.",
+            "zig": "hello after the rate limit"
+          }
+        ],
+        "matched": [
+          "tool_executions"
+        ],
+        "stale": [],
+        "status": "classified_differences",
+        "unclassified": []
+      },
+      "zig": {
+        "answer": "hello after the rate limit",
+        "followup_carries_tool_result": false,
+        "inference_requests": 2,
+        "side_effects": {
+          "outside_write": false,
+          "shell_marker": false
+        },
+        "terminal": "completed",
+        "terminal_detail": "completed",
+        "tool_executions": []
+      }
+    },
+    "http_500": {
+      "about": "A server error on the first request, then a valid reply is available.",
+      "requirement": "Provider failure",
+      "rust": {
+        "answer": null,
+        "followup_carries_tool_result": false,
+        "inference_requests": 1,
+        "side_effects": {
+          "outside_write": false,
+          "shell_marker": false
+        },
+        "terminal": "not_completed",
+        "terminal_detail": "exit 1",
+        "tool_executions": []
+      },
+      "verdict": {
+        "differences": [
+          {
+            "class": "intentional_change_requires_approval",
+            "field": "terminal",
+            "rust": "not_completed",
+            "why": "D1.",
+            "zig": "completed"
+          },
+          {
+            "class": "intentional_change_requires_approval",
+            "field": "inference_requests",
+            "rust": 1,
+            "why": "D1.",
+            "zig": 2
+          },
+          {
+            "class": "intentional_change_requires_approval",
+            "field": "answer",
+            "rust": null,
+            "why": "D1.",
+            "zig": "hello after the server error"
+          }
+        ],
+        "matched": [
+          "tool_executions"
+        ],
+        "stale": [],
+        "status": "classified_differences",
+        "unclassified": []
+      },
+      "zig": {
+        "answer": "hello after the server error",
+        "followup_carries_tool_result": false,
+        "inference_requests": 2,
+        "side_effects": {
+          "outside_write": false,
+          "shell_marker": false
+        },
+        "terminal": "completed",
+        "terminal_detail": "completed",
+        "tool_executions": []
+      }
+    },
+    "persistence_failure": {
+      "about": "The session location is unusable (a file where a directory should be).",
+      "requirement": "Persistence failure",
+      "rust": {
+        "answers_without_saving": false,
+        "failure_after_work_ran": null,
+        "no_claim_of_durable_session": true,
+        "warned": true
+      },
+      "verdict": {
+        "differences": [
+          {
+            "class": "intentional_change_requires_approval",
+            "field": "answers_without_saving",
+            "rust": false,
+            "why": "Zig warns `session persistence unavailable ... continuing without saving`, still answers and exits 0 with an empty session id. Rust refuses to run the turn (`unsafe session path`) and reports nothing as done.",
+            "zig": true
+          }
+        ],
+        "matched": [
+          "no_claim_of_durable_session"
+        ],
+        "stale": [],
+        "status": "classified_differences",
+        "unclassified": []
+      },
+      "zig": {
+        "answers_without_saving": true,
+        "failure_after_work_ran": null,
+        "no_claim_of_durable_session": true,
+        "warned": true
+      }
+    },
+    "recovery_after_kill": {
+      "about": "The process is killed mid-turn with a session on disk, then restarted. Zig: `ask --resume last --continue-recovery`. Rust: `turn_tool` with a crash injected at a write boundary, then the same prompt again.",
+      "requirement": "Recovery",
+      "rust": {
+        "completed_after_restart": true,
+        "first_run_claimed_complete": false,
+        "inference_requests_on_restart": null,
+        "interrupted_turn_not_claimed_complete": true,
+        "resumes_the_interrupted_model_response": false,
+        "side_effects_replayed_on_rerun": true
+      },
+      "verdict": {
+        "differences": [
+          {
+            "class": "unsupported",
+            "field": "resumes_the_interrupted_model_response",
+            "rust": false,
+            "why": "Zig re-issues the paused model response (`--continue-recovery`, reported as recovered). Rust drops the uncommitted turn and the user must ask again; there is no resume of the interrupted response, and the shipped `chip` binary does not persist turns at all (only the chip-turns library and its example driver do).",
+            "zig": true
+          },
+          {
+            "class": "limitation",
+            "field": "side_effects_replayed_on_rerun",
+            "rust": true,
+            "why": "Rust re-running the same prompt after a crash re-executes the capability, because the first run's turn was never committed. Nothing is replayed automatically, but there is no idempotence guard either. Needs a product decision before any tool with side effects is exposed through a persisted turn.",
+            "zig": null
+          }
+        ],
+        "matched": [
+          "completed_after_restart",
+          "interrupted_turn_not_claimed_complete"
+        ],
+        "stale": [],
+        "status": "classified_differences",
+        "unclassified": []
+      },
+      "zig": {
+        "completed_after_restart": true,
+        "first_run_claimed_complete": false,
+        "inference_requests_on_restart": 1,
+        "interrupted_turn_not_claimed_complete": true,
+        "resumes_the_interrupted_model_response": true,
+        "side_effects_replayed_on_rerun": null
+      }
+    },
+    "shell_not_executed": {
+      "about": "The model asks for a shell command with a side effect (touch a marker outside the fixture). It must not run.",
+      "requirement": "Unauthorized tool",
+      "rust": {
+        "answer": null,
+        "followup_carries_tool_result": false,
+        "inference_requests": 1,
+        "side_effects": {
+          "outside_write": false,
+          "shell_marker": false
+        },
+        "terminal": "not_completed",
+        "terminal_detail": "failed",
+        "tool_executions": []
+      },
+      "verdict": {
+        "differences": [
+          {
+            "class": "intentional_change_requires_approval",
+            "field": "terminal",
+            "rust": "not_completed",
+            "why": "Zig denies the terminal tool and continues; Chip has no shell capability and ends the work as failed.",
+            "zig": "completed"
+          }
+        ],
+        "matched": [
+          "tool_executions",
+          "side_effects"
+        ],
+        "stale": [],
+        "status": "classified_differences",
+        "unclassified": []
+      },
+      "zig": {
+        "answer": "done",
+        "followup_carries_tool_result": false,
+        "inference_requests": 2,
+        "side_effects": {
+          "outside_write": false,
+          "shell_marker": false
+        },
+        "terminal": "completed",
+        "terminal_detail": "completed",
+        "tool_executions": []
+      }
+    },
+    "step_limit": {
+      "about": "Tool calls forever with a limit of 2 steps/turns: the work ends at the limit, not as a completion. Zig counts steps and Chip counts turns; with a limit of 2 both made 2 requests and 2 reads, so no difference is declared.",
+      "requirement": "Tool execution",
+      "rust": {
+        "answer": null,
+        "followup_carries_tool_result": true,
+        "inference_requests": 2,
+        "side_effects": {
+          "outside_write": false,
+          "shell_marker": false
+        },
+        "terminal": "not_completed",
+        "terminal_detail": "limit_reached",
+        "tool_executions": [
+          "read",
+          "read"
+        ]
+      },
+      "verdict": {
+        "differences": [],
+        "matched": [
+          "terminal_not_completed",
+          "tool_executions",
+          "inference_requests"
+        ],
+        "stale": [],
+        "status": "match",
+        "unclassified": []
+      },
+      "zig": {
+        "answer": null,
+        "followup_carries_tool_result": true,
+        "inference_requests": 2,
+        "side_effects": {
+          "outside_write": false,
+          "shell_marker": false
+        },
+        "terminal": "not_completed",
+        "terminal_detail": "failed",
+        "tool_executions": [
+          "read",
+          "read"
+        ]
+      }
+    },
+    "tool_round_trip": {
+      "about": "The model asks to read a file; the host runs it once; the result reaches the next request; the model answers.",
+      "requirement": "Tool execution",
+      "rust": {
+        "answer": "note.txt says fixture-token-7f3a",
+        "followup_carries_tool_result": true,
+        "inference_requests": 2,
+        "side_effects": {
+          "outside_write": false,
+          "shell_marker": false
+        },
+        "terminal": "completed",
+        "terminal_detail": "completed",
+        "tool_executions": [
+          "read"
+        ]
+      },
+      "verdict": {
+        "differences": [],
+        "matched": [
+          "terminal",
+          "answer",
+          "inference_requests",
+          "tool_executions",
+          "followup_carries_tool_result"
+        ],
+        "stale": [],
+        "status": "match",
+        "unclassified": []
+      },
+      "zig": {
+        "answer": "note.txt says fixture-token-7f3a",
+        "followup_carries_tool_result": true,
+        "inference_requests": 2,
+        "side_effects": {
+          "outside_write": false,
+          "shell_marker": false
+        },
+        "terminal": "completed",
+        "terminal_detail": "completed",
+        "tool_executions": [
+          "read"
+        ]
+      }
+    },
+    "unknown_tool": {
+      "about": "The model asks for a tool the host does not offer. It must not run.",
+      "requirement": "Unauthorized tool",
+      "rust": {
+        "answer": null,
+        "followup_carries_tool_result": false,
+        "inference_requests": 1,
+        "side_effects": {
+          "outside_write": false,
+          "shell_marker": false
+        },
+        "terminal": "not_completed",
+        "terminal_detail": "failed",
+        "tool_executions": []
+      },
+      "verdict": {
+        "differences": [
+          {
+            "class": "intentional_change_requires_approval",
+            "field": "terminal",
+            "rust": "not_completed",
+            "why": "Zig reports the unknown tool to the model and continues to a completed turn (D3); Chip ends the work as failed without repair.",
+            "zig": "completed"
+          },
+          {
+            "class": "intentional_change_requires_approval",
+            "field": "inference_requests",
+            "rust": 1,
+            "why": "follows from the same fail-closed choice: Chip stops after the invalid decision.",
+            "zig": 2
+          }
+        ],
+        "matched": [
+          "tool_executions",
+          "side_effects"
+        ],
+        "stale": [],
+        "status": "classified_differences",
+        "unclassified": []
+      },
+      "zig": {
+        "answer": "recovered",
+        "followup_carries_tool_result": false,
+        "inference_requests": 2,
+        "side_effects": {
+          "outside_write": false,
+          "shell_marker": false
+        },
+        "terminal": "completed",
+        "terminal_detail": "completed",
+        "tool_executions": []
+      }
+    },
+    "write_outside_workspace": {
+      "about": "The model asks to write a file outside the workspace (../ and absolute path variants are both observed in the capture notes).",
+      "requirement": "Unauthorized tool",
+      "rust": {
+        "answer": null,
+        "followup_carries_tool_result": false,
+        "inference_requests": 1,
+        "side_effects": {
+          "outside_write": false,
+          "shell_marker": false
+        },
+        "terminal": "not_completed",
+        "terminal_detail": "blocked",
+        "tool_executions": []
+      },
+      "verdict": {
+        "differences": [
+          {
+            "class": "intentional_change_requires_approval",
+            "field": "side_effects",
+            "rust": {
+              "outside_write": false,
+              "shell_marker": false
+            },
+            "why": "OBSERVED: the Zig binary in a fresh HOME with no flags executes write_file outside the workspace (the file appears next to the workspace, status success). Chip refuses the path before any execution. Rust is stricter; Zig's behavior looks like a permission-policy hole and deserves its own security review.",
+            "zig": {
+              "outside_write": true,
+              "shell_marker": false
+            }
+          },
+          {
+            "class": "intentional_change_requires_approval",
+            "field": "tool_executions",
+            "rust": [],
+            "why": "OBSERVED: the Zig binary in a fresh HOME with no flags executes write_file outside the workspace (status success). Chip refuses the path before any execution. Rust is stricter; the Zig behavior looks like a permission-policy hole and should get its own security review.",
+            "zig": [
+              "write"
+            ]
+          },
+          {
+            "class": "intentional_change_requires_approval",
+            "field": "terminal",
+            "rust": "not_completed",
+            "why": "Zig completes; Chip ends blocked.",
+            "zig": "completed"
+          },
+          {
+            "class": "intentional_change_requires_approval",
+            "field": "inference_requests",
+            "rust": 1,
+            "why": "Chip stops after the refused request.",
+            "zig": 2
+          }
+        ],
+        "matched": [],
+        "stale": [],
+        "status": "classified_differences",
+        "unclassified": []
+      },
+      "zig": {
+        "answer": "written",
+        "followup_carries_tool_result": false,
+        "inference_requests": 2,
+        "side_effects": {
+          "outside_write": true,
+          "shell_marker": false
+        },
+        "terminal": "completed",
+        "terminal_detail": "completed",
+        "tool_executions": [
+          "write"
+        ]
+      }
+    }
+  },
+  "schema": 1,
+  "tools": {
+    "chip": "chip 0.1.0",
+    "chip_rs_ref": "17a261ada6d89d887e29a52a07eec573baee255f",
+    "chip_sha256": "8b9bbed7faccd00f5420f83e62f571ed1fa2d1276bef961597dfe4eabf47b206",
+    "python": "3.13.16",
+    "zig_fx": "0.0.4",
+    "zig_fx_sha256": "253effa87890fd4fe2afe98004566d7d85a1f22552864d2dfaaa088bd20d59a9"
+  }
+}

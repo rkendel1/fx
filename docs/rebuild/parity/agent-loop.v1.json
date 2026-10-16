@@ -1,0 +1,421 @@
+{
+  "schema": 1,
+  "version": "agent-loop.v1",
+  "about": "Observable-behavior corpus for the agent loop: the same scripted model replies and the same fixture files are run through the Zig `fx ask` loop and Rust Chip (`chip` / `chip work`, plus the `turn_tool` driver for persistence). Compared: terminal state, answer, number of inference requests, tool executions, whether the tool result reaches the next request, side effects. Not compared: internals, event shapes, prompts.",
+  "fixture": {
+    "files": {
+      "note.txt": "fixture-token-7f3a\n"
+    }
+  },
+  "classes": {
+    "match": "the observable fields compared are equal",
+    "intentional_change_requires_approval": "Rust differs on purpose; retirement needs an owner decision recorded in `approvals`",
+    "defect": "Rust (or Zig) behaves wrongly; must be fixed before retirement",
+    "limitation": "a genuine limitation of one side that the product has to accept or close; blocks retirement until decided",
+    "unsupported": "the behavior is not implemented on the Rust side (or cannot be driven); blocks retirement"
+  },
+  "approvals": {},
+  "scenarios": [
+    {
+      "id": "basic_turn",
+      "requirement": "Basic turn",
+      "about": "One text answer, one inference, a completed turn.",
+      "prompt": "say hello",
+      "model": [
+        {
+          "say": "hello from the model"
+        }
+      ],
+      "compare": [
+        "terminal",
+        "answer",
+        "inference_requests",
+        "tool_executions"
+      ],
+      "differences": {}
+    },
+    {
+      "id": "tool_round_trip",
+      "requirement": "Tool execution",
+      "about": "The model asks to read a file; the host runs it once; the result reaches the next request; the model answers.",
+      "prompt": "read note.txt and tell me what it says",
+      "model": [
+        {
+          "read": "note.txt"
+        },
+        {
+          "say": "note.txt says fixture-token-7f3a"
+        }
+      ],
+      "compare": [
+        "terminal",
+        "answer",
+        "inference_requests",
+        "tool_executions",
+        "followup_carries_tool_result"
+      ],
+      "differences": {}
+    },
+    {
+      "id": "unknown_tool",
+      "requirement": "Unauthorized tool",
+      "about": "The model asks for a tool the host does not offer. It must not run.",
+      "prompt": "do the thing",
+      "model": [
+        {
+          "unknown": "no_such_tool"
+        },
+        {
+          "say": "recovered"
+        }
+      ],
+      "compare": [
+        "tool_executions",
+        "side_effects"
+      ],
+      "differences": {
+        "terminal": {
+          "class": "intentional_change_requires_approval",
+          "why": "Zig reports the unknown tool to the model and continues to a completed turn (D3); Chip ends the work as failed without repair."
+        },
+        "inference_requests": {
+          "class": "intentional_change_requires_approval",
+          "why": "follows from the same fail-closed choice: Chip stops after the invalid decision."
+        }
+      }
+    },
+    {
+      "id": "shell_not_executed",
+      "requirement": "Unauthorized tool",
+      "about": "The model asks for a shell command with a side effect (touch a marker outside the fixture). It must not run.",
+      "prompt": "run a command",
+      "model": [
+        {
+          "shell": "touch {marker}"
+        },
+        {
+          "say": "done"
+        }
+      ],
+      "compare": [
+        "tool_executions",
+        "side_effects"
+      ],
+      "differences": {
+        "terminal": {
+          "class": "intentional_change_requires_approval",
+          "why": "Zig denies the terminal tool and continues; Chip has no shell capability and ends the work as failed."
+        }
+      }
+    },
+    {
+      "id": "write_outside_workspace",
+      "requirement": "Unauthorized tool",
+      "about": "The model asks to write a file outside the workspace (../ and absolute path variants are both observed in the capture notes).",
+      "prompt": "write outside",
+      "model": [
+        {
+          "write_outside": "outside.txt"
+        },
+        {
+          "say": "written"
+        }
+      ],
+      "compare": [],
+      "differences": {
+        "side_effects": {
+          "class": "intentional_change_requires_approval",
+          "why": "OBSERVED: the Zig binary in a fresh HOME with no flags executes write_file outside the workspace (the file appears next to the workspace, status success). Chip refuses the path before any execution. Rust is stricter; Zig's behavior looks like a permission-policy hole and deserves its own security review."
+        },
+        "tool_executions": {
+          "class": "intentional_change_requires_approval",
+          "why": "OBSERVED: the Zig binary in a fresh HOME with no flags executes write_file outside the workspace (status success). Chip refuses the path before any execution. Rust is stricter; the Zig behavior looks like a permission-policy hole and should get its own security review."
+        },
+        "terminal": {
+          "class": "intentional_change_requires_approval",
+          "why": "Zig completes; Chip ends blocked."
+        },
+        "inference_requests": {
+          "class": "intentional_change_requires_approval",
+          "why": "Chip stops after the refused request."
+        }
+      }
+    },
+    {
+      "id": "http_429",
+      "requirement": "Provider failure",
+      "about": "A rate limit on the first request, then a valid reply is available.",
+      "prompt": "say hello",
+      "model": [
+        {
+          "http": 429,
+          "retry_after": 1
+        },
+        {
+          "say": "hello after the rate limit"
+        }
+      ],
+      "compare": [
+        "tool_executions"
+      ],
+      "differences": {
+        "terminal": {
+          "class": "intentional_change_requires_approval",
+          "why": "D1: Zig repeats the request after an ambiguous HTTP error and completes; Chip makes one request and surfaces the failure."
+        },
+        "inference_requests": {
+          "class": "intentional_change_requires_approval",
+          "why": "D1, same cause."
+        },
+        "answer": {
+          "class": "intentional_change_requires_approval",
+          "why": "D1, same cause."
+        }
+      }
+    },
+    {
+      "id": "http_500",
+      "requirement": "Provider failure",
+      "about": "A server error on the first request, then a valid reply is available.",
+      "prompt": "say hello",
+      "model": [
+        {
+          "http": 500
+        },
+        {
+          "say": "hello after the server error"
+        }
+      ],
+      "compare": [
+        "tool_executions"
+      ],
+      "differences": {
+        "terminal": {
+          "class": "intentional_change_requires_approval",
+          "why": "D1."
+        },
+        "inference_requests": {
+          "class": "intentional_change_requires_approval",
+          "why": "D1."
+        },
+        "answer": {
+          "class": "intentional_change_requires_approval",
+          "why": "D1."
+        }
+      }
+    },
+    {
+      "id": "http_400",
+      "requirement": "Provider failure",
+      "about": "A client error: not retried by either side; the turn fails.",
+      "prompt": "say hello",
+      "model": [
+        {
+          "http": 400
+        }
+      ],
+      "compare": [
+        "terminal",
+        "inference_requests",
+        "tool_executions"
+      ],
+      "differences": {}
+    },
+    {
+      "id": "cut_stream",
+      "requirement": "Provider failure",
+      "about": "A stream cut off before its terminal marker, then a valid reply is available.",
+      "prompt": "say hello",
+      "model": [
+        {
+          "cut": "partial "
+        },
+        {
+          "say": "hello after the cut stream"
+        }
+      ],
+      "compare": [
+        "tool_executions"
+      ],
+      "differences": {
+        "terminal": {
+          "class": "intentional_change_requires_approval",
+          "why": "D1: Zig repeats after a cut stream; Chip does not."
+        },
+        "inference_requests": {
+          "class": "intentional_change_requires_approval",
+          "why": "D1."
+        },
+        "answer": {
+          "class": "intentional_change_requires_approval",
+          "why": "D1."
+        }
+      }
+    },
+    {
+      "id": "failure_after_tool",
+      "requirement": "Provider failure",
+      "about": "A tool runs, then the follow-up request fails with a 500. The tool must not run twice.",
+      "prompt": "read note.txt and tell me what it says",
+      "model": [
+        {
+          "read": "note.txt"
+        },
+        {
+          "http": 500
+        },
+        {
+          "say": "note.txt says fixture-token-7f3a"
+        }
+      ],
+      "compare": [
+        "tool_executions"
+      ],
+      "differences": {
+        "terminal": {
+          "class": "intentional_change_requires_approval",
+          "why": "D1: Zig repeats the follow-up request and completes; Chip stops with the failure."
+        },
+        "inference_requests": {
+          "class": "intentional_change_requires_approval",
+          "why": "D1."
+        },
+        "answer": {
+          "class": "intentional_change_requires_approval",
+          "why": "D1."
+        }
+      }
+    },
+    {
+      "id": "step_limit",
+      "requirement": "Tool execution",
+      "about": "Tool calls forever with a limit of 2 steps/turns: the work ends at the limit, not as a completion. Zig counts steps and Chip counts turns; with a limit of 2 both made 2 requests and 2 reads, so no difference is declared.",
+      "prompt": "read note.txt again and again",
+      "model": [
+        {
+          "read": "note.txt"
+        },
+        {
+          "read": "note.txt"
+        },
+        {
+          "read": "note.txt"
+        },
+        {
+          "read": "note.txt"
+        },
+        {
+          "read": "note.txt"
+        }
+      ],
+      "limit": 2,
+      "compare": [
+        "terminal_not_completed",
+        "tool_executions",
+        "inference_requests"
+      ],
+      "differences": {}
+    },
+    {
+      "id": "cancel_mid_stream",
+      "requirement": "Cancellation",
+      "about": "SIGINT while the model's reply is streaming and then silent. Nothing may be reported as completed and no tool may run.",
+      "prompt": "say hello",
+      "model": [
+        {
+          "hang": "partial "
+        }
+      ],
+      "signal": "SIGINT",
+      "compare": [
+        "terminal",
+        "answer",
+        "inference_requests",
+        "tool_executions"
+      ],
+      "differences": {}
+    },
+    {
+      "id": "recovery_after_kill",
+      "requirement": "Recovery",
+      "about": "The process is killed mid-turn with a session on disk, then restarted. Zig: `ask --resume last --continue-recovery`. Rust: `turn_tool` with a crash injected at a write boundary, then the same prompt again.",
+      "driver": "recovery",
+      "compare": [
+        "completed_after_restart",
+        "interrupted_turn_not_claimed_complete"
+      ],
+      "differences": {
+        "resumes_the_interrupted_model_response": {
+          "class": "unsupported",
+          "why": "Zig re-issues the paused model response (`--continue-recovery`, reported as recovered). Rust drops the uncommitted turn and the user must ask again; there is no resume of the interrupted response, and the shipped `chip` binary does not persist turns at all (only the chip-turns library and its example driver do)."
+        },
+        "side_effects_replayed_on_rerun": {
+          "class": "limitation",
+          "why": "Rust re-running the same prompt after a crash re-executes the capability, because the first run's turn was never committed. Nothing is replayed automatically, but there is no idempotence guard either. Needs a product decision before any tool with side effects is exposed through a persisted turn."
+        }
+      }
+    },
+    {
+      "id": "persistence_failure",
+      "requirement": "Persistence failure",
+      "about": "The session location is unusable (a file where a directory should be).",
+      "driver": "persistence",
+      "compare": [
+        "no_claim_of_durable_session"
+      ],
+      "differences": {
+        "answers_without_saving": {
+          "class": "intentional_change_requires_approval",
+          "why": "Zig warns `session persistence unavailable ... continuing without saving`, still answers and exits 0 with an empty session id. Rust refuses to run the turn (`unsafe session path`) and reports nothing as done."
+        }
+      }
+    }
+  ],
+  "unsupported_behaviors": [
+    {
+      "id": "permission_modes",
+      "what": "ask / auto / yolo permission modes",
+      "why": "Chip has one fixed policy (declared capabilities only); no modes."
+    },
+    {
+      "id": "provider_native_tool_loop",
+      "what": "provider-native tool definitions and multiple/parallel tool calls in one reply",
+      "why": "Chip uses single text decisions (`chip.work-decision.v1`); FX refuses tools by contract."
+    },
+    {
+      "id": "silent_tool_continuation",
+      "what": "continuing after tools that produce no model-visible output",
+      "why": "not ported"
+    },
+    {
+      "id": "step_limit_pause",
+      "what": "pausing at the step limit and continuing with `--continue-recovery`",
+      "why": "Chip ends the work at the limit; there is no pause/continue."
+    },
+    {
+      "id": "images_and_vision",
+      "what": "image attachments and the vision tool",
+      "why": "FX refuses non-text parts in the native providers."
+    },
+    {
+      "id": "subagents_mcp_skills_memory",
+      "what": "subagents, MCP tools, skills, memory, web tools",
+      "why": "no Rust equivalent exists"
+    },
+    {
+      "id": "interactive_permission_prompts",
+      "what": "interactive approval of a denied action",
+      "why": "no Rust equivalent exists"
+    },
+    {
+      "id": "cancel_after_tool",
+      "what": "cancellation between a tool result and the next request",
+      "why": "not driven by this corpus yet"
+    },
+    {
+      "id": "persistence_failure_after_work_ran",
+      "what": "a publish failure after the work has already executed (Persistence::NotCommitted / Uncertain)",
+      "why": "covered by chip-turns tests but cannot be injected through the shipped binary or turn_tool; not part of this run"
+    }
+  ]
+}

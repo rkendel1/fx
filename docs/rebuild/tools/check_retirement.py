@@ -65,6 +65,19 @@ def main() -> int:
                 if word in text:
                     errors.append(f"{rs.relative_to(ROOT)} references {word!r}; Rust must not depend on Zig outputs")
 
+    parity = cfg.get("agent_parity")
+    if parity:
+        done = __import__("subprocess").run([sys.executable, "-I", str(ROOT / parity["runner"]), "check", "--results", str(ROOT / parity["results"])],
+                                           capture_output=True, text=True)
+        if done.returncode != 0:
+            errors.append("agent-parity: " + (done.stderr.strip() or done.stdout.strip()).replace("\n", "; "))
+        else:
+            ready = json.loads((ROOT / parity["results"]).read_text())["gate"]["retirement_ready"]
+            still_blocked = any(b["id"] == "zig-agent-loop" for b in cfg["blocked"])
+            if not ready and not still_blocked:
+                errors.append("zig-agent-loop left `blocked` but agent-parity.json says retirement_ready is false")
+            print(f"agent-parity: stored result valid; retirement_ready={ready}")
+
     executors = [m.parent.name for m in manifests
                  if re.search(r"pub fn execute\b", "".join(p.read_text() for p in (m.parent / "src").rglob("*.rs")))]
     if executors != [cfg["single_executor"]["crate"].split("/")[1]]:
