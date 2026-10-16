@@ -87,7 +87,11 @@ impl Wire for OpenAiWire {
 
     fn body(&self, request: &Request) -> Result<Vec<u8>, String> {
         check_common(request, true)?;
-        let mut messages = Vec::with_capacity(request.messages.len());
+        // Consecutive system messages are sent as one, in order, joined by a blank line: the
+        // format allows several, but some servers' chat templates (local models served by LM
+        // Studio among them) accept a system message only first and only once. Nothing is
+        // dropped or reordered, and a system message that follows another role stays in place.
+        let mut messages: Vec<(&'static str, String)> = Vec::with_capacity(request.messages.len());
         for message in &request.messages {
             let role = match message.role {
                 Role::System => "system",
@@ -95,8 +99,19 @@ impl Wire for OpenAiWire {
                 Role::Assistant => "assistant",
                 Role::Tool => return Err("tool messages are not supported".into()),
             };
-            messages.push(json!({"role": role, "content": plain_text(&message.parts)?}));
+            let text = plain_text(&message.parts)?;
+            match messages.last_mut() {
+                Some((last, joined)) if role == "system" && *last == "system" => {
+                    joined.push_str("\n\n");
+                    joined.push_str(&text);
+                }
+                _ => messages.push((role, text)),
+            }
         }
+        let messages: Vec<Value> = messages
+            .into_iter()
+            .map(|(role, content)| json!({"role": role, "content": content}))
+            .collect();
         let mut body = json!({
             "model": request.model.as_str(),
             "messages": messages,

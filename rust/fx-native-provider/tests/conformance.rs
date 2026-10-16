@@ -348,6 +348,41 @@ fn a_response_format_is_sent_as_a_json_schema() {
 }
 
 #[test]
+fn consecutive_system_messages_are_sent_as_one_and_order_is_kept() {
+    let server = Server::start(vec![sse(vec![delta("ok"), finish("stop"), done()])]);
+    let mut r = request();
+    let system = |text: &str| Message {
+        role: Role::System,
+        parts: vec![Part::Text(text.to_owned())],
+        cache: CacheHint::Default,
+    };
+    // request() is [system "be brief", user "say hi"]; make it [sys, sys, user, sys].
+    r.messages.insert(1, system("and polite"));
+    r.messages.push(system("late rule"));
+    completion(&run(&server, &r, &mut TestHost::default()));
+    let body: serde_json::Value = serde_json::from_str(&server.recorded()[0].body).unwrap();
+    let sent: Vec<(String, String)> = body["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| {
+            (
+                m["role"].as_str().unwrap().into(),
+                m["content"].as_str().unwrap().into(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        sent,
+        vec![
+            ("system".to_owned(), "be brief\n\nand polite".to_owned()),
+            ("user".to_owned(), "say hi".to_owned()),
+            ("system".to_owned(), "late rule".to_owned()),
+        ]
+    );
+}
+
+#[test]
 fn a_keyless_endpoint_sends_no_authorization_and_extra_headers_are_sent() {
     let server = Server::start(vec![sse(vec![delta("ok"), finish("stop"), done()])]);
     let config = OpenAiConfig::without_key(&server.base_url)
