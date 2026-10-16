@@ -19,6 +19,7 @@
     "example:agent": "node examples/agent-mock.mjs",
     "test:chip": "node --test --test-reporter=spec \"test-chip/*.test.mjs\"",
     "conformance": "node scripts/conformance.mjs",
+    "conformance:native": "node conformance/native-parity.mjs",
     "conformance:check": "node scripts/conformance.mjs --repeat 2 --check-doc ../../docs/rebuild/PROVIDER_CONFORMANCE.md"
   },
   "devDependencies": {

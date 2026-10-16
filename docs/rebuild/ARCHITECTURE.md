@@ -118,6 +118,8 @@ Dependency policy, enforced by `rust/fx-core/check-boundaries.sh` and `.github/w
 - Forbidden in `src/`: `std::net`, `std::fs`, `std::process`, `std::env`, `std::thread`, `std::os`, `Instant`, `SystemTime`, `async`/`.await`, `unsafe` (also `#![forbid(unsafe_code)]` via lints), `include!`-family macros and `#[path]`.
 - Toolchain pinned in `rust-toolchain.toml` (1.97.0, with `rustfmt`, `clippy` and the `wasm32-unknown-unknown` target); dependencies locked in `rust/fx-core/Cargo.lock`; every gate runs with `--locked`.
 
+Native provider transport is the one place outside the Node host where network I/O is allowed. It lives in `rust/fx-native-provider`, a host crate with its own allowlist (`deps-allowlist.txt`), boundary script and license gate. It depends only on `fx-core` and `fx-single-attempt`, implements `ProviderPort`, and is never a dependency of a Wasm-bound crate. See [NATIVE_PROVIDER.md](NATIVE_PROVIDER.md).
+
 ### Primitive A: Inference Contract (`rust/fx-core/src/contract.rs`)
 
 **Responsibility:** the provider-neutral vocabulary of one inference operation: request, content parts, tool definitions and choice, generation options, stream events, completion, failure, cancellation, delivery certainty, limits, and (R2) the capability interface it is executed against.
