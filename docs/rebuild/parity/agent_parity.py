@@ -441,6 +441,18 @@ def print_summary(results: dict) -> None:
     for sid, r in results["scenarios"].items():
         v = r["verdict"]
         print(f"{sid:26} {v['status']:26} matched={len(v['matched'])} classified={len(v['differences'])}")
+    # A run that is not valid must say WHY in its log: which fields differed and what each side did.
+    for sid, r in results["scenarios"].items():
+        v = r["verdict"]
+        for entry in v.get("unclassified", []):
+            print(f"UNCLASSIFIED {sid}.{entry['field']}: zig={entry['zig']!r} rust={entry['rust']!r}")
+        for field in v.get("stale", []):
+            print(f"STALE {sid}.{field}: declared as a difference but both sides agreed")
+        if v["status"] == "unclassified_difference" and r.get("zig"):
+            print(f"  {sid} zig : {json.dumps(r['zig'], sort_keys=True)}")
+            print(f"  {sid} rust: {json.dumps(r['rust'], sort_keys=True)}")
+        if r.get("error"):
+            print(f"ERROR {sid}: {r['error']}")
     g = results["gate"]
     print(f"run valid: {g['run_is_valid']}; unapproved differences: {len(g['unapproved_differences'])}; "
           f"unsupported behaviors: {len(g['unsupported_behaviors'])}; retirement ready: {g['retirement_ready']}")
