@@ -1,0 +1,120 @@
+name: Native provider
+
+# Gates for the native Rust provider (rust/fx-native-provider) behind the FX
+# single-attempt port. Additive: the Zig, Rust core, host bridge and Full CI workflows are
+# unchanged. No job needs credentials or network access to a model provider; every test
+# talks to a mock HTTP server on 127.0.0.1. This is mocked-transport evidence only. See
+# docs/rebuild/NATIVE_PROVIDER.md for what it does not prove.
+
+on:
+  push:
+    paths:
+      - "rust/**"
+      - "host/node/conformance/**"
+      - "host/node/package.json"
+      - "rust-toolchain.toml"
+      - "docs/rebuild/NATIVE_PROVIDER.md"
+      - ".github/workflows/native-provider.yml"
+  pull_request:
+    paths:
+      - "rust/**"
+      - "host/node/conformance/**"
+      - "host/node/package.json"
+      - "rust-toolchain.toml"
+      - "docs/rebuild/NATIVE_PROVIDER.md"
+      - ".github/workflows/native-provider.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: native-provider-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  native-provider:
+    name: Native provider (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    defaults:
+      run:
+        working-directory: rust/fx-native-provider
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned toolchain
+        working-directory: .
+        run: |
+          channel="$(sed -nE 's/^channel = "([^"]+)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal \
+            --component rustfmt,clippy --target wasm32-unknown-unknown
+          rustc --version
+          cargo --version
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Lint
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Test (native conformance against a mock server)
+        run: cargo test --locked
+
+      - name: Build native
+        run: cargo build --locked --release
+
+      - name: Dependency and source boundaries
+        run: ./check-boundaries.sh
+
+      - name: Licenses
+        run: python3 check-licenses.py
+
+  # The same scenarios through the Node-backed path (Easy-LLM in the WebAssembly executor)
+  # and through the native provider. Differences must be the documented ones.
+  parity:
+    name: Node versus native parity (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: host/node/package-lock.json
+
+      - name: Install pinned toolchain
+        run: |
+          channel="$(sed -nE 's/^channel = "([^"]+)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal \
+            --component rustfmt,clippy --target wasm32-unknown-unknown
+          rustc --version
+
+      - name: Install Node host dependencies
+        working-directory: host/node
+        run: npm ci
+
+      - name: Build the WebAssembly executor
+        working-directory: host/node
+        run: npm run build:wasm
+
+      - name: Build the native parity binary
+        run: cargo build --locked --manifest-path rust/fx-native-provider/Cargo.toml --example native_parity
+
+      - name: Compare
+        working-directory: host/node
+        run: npm run conformance:native
