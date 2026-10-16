@@ -14,19 +14,25 @@ pub struct OpenAiWire {
     pub(crate) config: OpenAiConfig,
 }
 
-/// Options this wire format carries: only an output token cap. Anything else FX could ask
+/// Options the native wire formats carry: an output token cap, a temperature, and (for the
+/// OpenAI-compatible format only) a JSON-schema response format. Anything else FX could ask
 /// for is refused here, before any thread starts.
-pub(crate) fn check_options(request: &Request) -> Result<(), String> {
+pub(crate) fn check_options(request: &Request, structured_output: bool) -> Result<(), String> {
     if request.options.reasoning != ReasoningEffort::Default {
         return Err("reasoning effort is not supported by the native provider".into());
     }
     if request.options.speed != Speed::Standard {
         return Err("speed is not supported by the native provider".into());
     }
-    if request.options.response_format.is_some() {
-        return Err("structured output is not supported by the native provider".into());
+    if !structured_output && request.options.response_format.is_some() {
+        return Err("structured output is not supported by this native provider".into());
     }
     Ok(())
+}
+
+/// A temperature in thousandths as the JSON number the providers expect.
+pub(crate) fn temperature(milli: u16) -> Value {
+    json!(f64::from(milli) / 1000.0)
 }
 
 /// Text of a message, or the first thing in it that cannot be carried.
@@ -41,20 +47,21 @@ pub(crate) fn plain_text(parts: &[Part]) -> Result<String, String> {
     Ok(text)
 }
 
-pub(crate) fn check_common(request: &Request) -> Result<(), String> {
+pub(crate) fn check_common(request: &Request, structured_output: bool) -> Result<(), String> {
     if request.model.as_str().trim().is_empty() {
         return Err("the model reference is empty".into());
     }
     if !request.tools.is_empty() || !matches!(request.tool_choice, ToolChoice::Auto) {
         return Err("tools are not supported by the native provider".into());
     }
-    check_options(request)
+    check_options(request, structured_output)
 }
 
 impl Wire for OpenAiWire {
     fn support(&self) -> PortSupport {
         PortSupport {
             generation_options: true,
+            response_format: true,
             ..PortSupport::default()
         }
     }
@@ -79,7 +86,7 @@ impl Wire for OpenAiWire {
     }
 
     fn body(&self, request: &Request) -> Result<Vec<u8>, String> {
-        check_common(request)?;
+        check_common(request, true)?;
         let mut messages = Vec::with_capacity(request.messages.len());
         for message in &request.messages {
             let role = match message.role {
@@ -98,6 +105,19 @@ impl Wire for OpenAiWire {
         });
         if let Some(max) = request.options.max_output_tokens {
             body["max_tokens"] = json!(max);
+        }
+        if let Some(milli) = request.options.temperature_milli {
+            body["temperature"] = temperature(milli);
+        }
+        if let Some(format) = &request.options.response_format {
+            // FX validated the schema as a JSON object; it is passed through untouched.
+            let schema: Value = serde_json::from_str(&format.schema_json)
+                .map_err(|_| "the response format schema is not valid JSON".to_owned())?;
+            let mut named = json!({"name": format.name, "schema": schema, "strict": false});
+            if !format.description.is_empty() {
+                named["description"] = json!(format.description);
+            }
+            body["response_format"] = json!({"type": "json_schema", "json_schema": named});
         }
         serde_json::to_vec(&body).map_err(|e| e.to_string())
     }

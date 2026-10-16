@@ -354,6 +354,8 @@ struct ResponseFormatDoc {
 struct OptionsDoc {
     #[serde(default)]
     max_output_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    temperature_milli: Option<u16>,
     #[serde(default)]
     reasoning: ReasoningDoc,
     #[serde(default)]
@@ -435,6 +437,7 @@ fn request_from_doc(doc: RequestDoc, limits: &Limits) -> Result<Request, DecodeE
         },
         options: GenerationOptions {
             max_output_tokens: options.max_output_tokens,
+            temperature_milli: options.temperature_milli,
             reasoning: match options.reasoning {
                 ReasoningDoc::Default {} => ReasoningEffort::Default,
                 ReasoningDoc::Named { label } => ReasoningEffort::Named(label),
@@ -553,6 +556,7 @@ fn request_to_doc(request: &Request) -> RequestDoc {
         },
         options: OptionsDoc {
             max_output_tokens: request.options.max_output_tokens,
+            temperature_milli: request.options.temperature_milli,
             reasoning: match &request.options.reasoning {
                 ReasoningEffort::Default => ReasoningDoc::Default {},
                 ReasoningEffort::Named(label) => ReasoningDoc::Named {

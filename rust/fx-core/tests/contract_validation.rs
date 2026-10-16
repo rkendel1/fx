@@ -680,6 +680,14 @@ fn generation_options_are_validated() {
     request.options.max_output_tokens = Some(1);
     ok(&request);
 
+    request.options.temperature_milli = Some(GenerationOptions::MAX_TEMPERATURE_MILLI + 1);
+    assert_eq!(code(&request), ValidationCode::InvalidTemperature);
+    for fine in [0, 1, 700, GenerationOptions::MAX_TEMPERATURE_MILLI] {
+        request.options.temperature_milli = Some(fine);
+        ok(&request);
+    }
+    request.options.temperature_milli = None;
+
     let max = Limits::DEFAULT.max_reasoning_label_bytes;
     request.options.reasoning = ReasoningEffort::Named("x".repeat(max));
     ok(&request);

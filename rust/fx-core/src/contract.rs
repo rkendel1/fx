@@ -378,12 +378,21 @@ pub struct ResponseFormat {
 pub struct GenerationOptions {
     /// Output token cap; must be positive when present.
     pub max_output_tokens: Option<u32>,
+    /// Sampling temperature in thousandths (`0` is 0.0, `700` is 0.7), at most
+    /// [`GenerationOptions::MAX_TEMPERATURE_MILLI`]. An integer keeps the request `Eq` and
+    /// its encoding exact. A provider that cannot honor it refuses the request before dispatch.
+    pub temperature_milli: Option<u16>,
     /// Reasoning effort.
     pub reasoning: ReasoningEffort,
     /// Speed.
     pub speed: Speed,
     /// Structured output.
     pub response_format: Option<ResponseFormat>,
+}
+
+impl GenerationOptions {
+    /// The largest accepted temperature, in thousandths (2.0).
+    pub const MAX_TEMPERATURE_MILLI: u16 = 2000;
 }
 
 /// Caller-chosen 128-bit request identifier.

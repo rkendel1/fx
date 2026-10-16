@@ -94,6 +94,8 @@ pub enum ValidationCode {
     ToolChoiceWithoutTools,
     /// `max_output_tokens` is zero.
     InvalidMaxOutputTokens,
+    /// `temperature_milli` is above the maximum.
+    InvalidTemperature,
     /// A reasoning label is empty, too long or has disallowed characters.
     InvalidReasoningLabel,
     /// A response-format name is empty, too long or has disallowed characters.
@@ -490,6 +492,12 @@ fn validate_options(request: &Request, limits: &Limits) -> Result<(), Validation
     let options = &request.options;
     if options.max_output_tokens == Some(0) {
         return Err(fail(ValidationCode::InvalidMaxOutputTokens));
+    }
+    if options
+        .temperature_milli
+        .is_some_and(|t| t > crate::contract::GenerationOptions::MAX_TEMPERATURE_MILLI)
+    {
+        return Err(fail(ValidationCode::InvalidTemperature));
     }
     if let ReasoningEffort::Named(label) = &options.reasoning
         && !is_valid_reasoning_label(label, limits)

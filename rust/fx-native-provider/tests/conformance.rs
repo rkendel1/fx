@@ -308,6 +308,46 @@ fn an_output_token_cap_is_carried_to_the_provider() {
 }
 
 #[test]
+fn temperature_is_carried_exactly_including_zero() {
+    for (milli, expected) in [(0u16, 0.0), (700, 0.7), (1000, 1.0), (2000, 2.0)] {
+        let server = Server::start(vec![sse(vec![delta("ok"), finish("stop"), done()])]);
+        let mut r = request();
+        r.options.temperature_milli = Some(milli);
+        completion(&run(&server, &r, &mut TestHost::default()));
+        let body: serde_json::Value = serde_json::from_str(&server.recorded()[0].body).unwrap();
+        assert_eq!(body["temperature"], expected, "{milli}");
+    }
+    let server = Server::start(vec![sse(vec![delta("ok"), finish("stop"), done()])]);
+    completion(&run(&server, &request(), &mut TestHost::default()));
+    let body: serde_json::Value = serde_json::from_str(&server.recorded()[0].body).unwrap();
+    assert!(body.get("temperature").is_none(), "absent stays absent");
+}
+
+#[test]
+fn a_response_format_is_sent_as_a_json_schema() {
+    let server = Server::start(vec![sse(vec![delta("{}"), finish("stop"), done()])]);
+    let mut r = request();
+    r.options.response_format = Some(ResponseFormat {
+        name: "reply".into(),
+        description: "One JSON object".into(),
+        schema_json: r#"{"type":"object"}"#.into(),
+    });
+    completion(&run(&server, &r, &mut TestHost::default()));
+    let body: serde_json::Value = serde_json::from_str(&server.recorded()[0].body).unwrap();
+    assert_eq!(body["response_format"]["type"], "json_schema");
+    assert_eq!(body["response_format"]["json_schema"]["name"], "reply");
+    assert_eq!(
+        body["response_format"]["json_schema"]["description"],
+        "One JSON object"
+    );
+    assert_eq!(
+        body["response_format"]["json_schema"]["schema"],
+        serde_json::json!({"type": "object"})
+    );
+    assert_eq!(body["response_format"]["json_schema"]["strict"], false);
+}
+
+#[test]
 fn a_keyless_endpoint_sends_no_authorization_and_extra_headers_are_sent() {
     let server = Server::start(vec![sse(vec![delta("ok"), finish("stop"), done()])]);
     let config = OpenAiConfig::without_key(&server.base_url)

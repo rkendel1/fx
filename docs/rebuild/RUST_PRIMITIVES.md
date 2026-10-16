@@ -126,6 +126,7 @@ pub enum ReasoningEffort { Default, Named(String) } // opaque label
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GenerationOptions {
     pub max_output_tokens: Option<u32>,
+    pub temperature_milli: Option<u16>, // thousandths; at most 2000
     pub reasoning: ReasoningEffort,
     pub speed: Speed,
     pub response_format: Option<ResponseFormat>,

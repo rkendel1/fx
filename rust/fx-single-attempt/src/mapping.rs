@@ -116,6 +116,7 @@ pub fn first_unsupported(request: &Request, support: PortSupport) -> Option<&'st
     let options = &request.options;
     if !support.generation_options
         && (options.max_output_tokens.is_some()
+            || options.temperature_milli.is_some()
             || options.reasoning != ReasoningEffort::Default
             || options.speed != Speed::Standard)
     {
