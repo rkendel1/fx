@@ -1,0 +1,88 @@
+name: Unified runtime
+
+# Gates the Chip-over-FX path end to end: Chip (rkendel1/chip-rs, built to WebAssembly), the
+# authoritative FX (rust/fx-host, built to WebAssembly), the real Easy-LLM adapters and a local
+# mock endpoint. No credentials and no model provider are needed. Also runs the retirement
+# gates. Additive: other workflows are unchanged.
+#
+# CHIP_RS_REF names the chip-rs commit this repository is tested against. Pin it to a merged
+# chip-rs commit; an unmerged branch is only acceptable while the two PRs are in review.
+
+on:
+  push:
+    paths:
+      - "rust/**"
+      - "host/**"
+      - "docs/rebuild/**"
+      - "rust-toolchain.toml"
+      - ".github/workflows/unified-runtime.yml"
+  pull_request:
+    paths:
+      - "rust/**"
+      - "host/**"
+      - "docs/rebuild/**"
+      - "rust-toolchain.toml"
+      - ".github/workflows/unified-runtime.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: unified-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CHIP_RS_REF: claude/magical-volta-0f78co
+
+jobs:
+  chip-over-fx:
+    name: Chip over FX (offline)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: rkendel1/chip-rs
+          ref: ${{ env.CHIP_RS_REF }}
+          path: chip-rs
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install pinned toolchain
+        run: |
+          channel="$(sed -nE 's/^channel = "([^"]+)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal --target wasm32-unknown-unknown
+          rustup default "$channel"
+
+      - name: Retirement gates
+        run: python3 docs/rebuild/tools/check_retirement.py --chip-rs chip-rs
+
+      - name: Build FX host module
+        run: cargo build --manifest-path rust/fx-host/Cargo.toml --locked --release --target wasm32-unknown-unknown
+
+      - name: Build Chip module
+        working-directory: chip-rs
+        run: cargo build -p chip-wasm-host --locked --release --target wasm32-unknown-unknown
+
+      - name: Install host dependencies
+        working-directory: host/node
+        run: npm ci
+
+      - name: Integrated tests and Zig parity
+        working-directory: host/node
+        env:
+          CHIP_WASM: ${{ github.workspace }}/chip-rs/target/wasm32-unknown-unknown/release/chip_wasm_host.wasm
+        run: npm run test:chip
+
+      - name: Offline multi-step example
+        working-directory: host/node
+        env:
+          CHIP_WASM: ${{ github.workspace }}/chip-rs/target/wasm32-unknown-unknown/release/chip_wasm_host.wasm
+        run: npm run example:agent
