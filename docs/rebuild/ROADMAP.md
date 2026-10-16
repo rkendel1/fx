@@ -6,8 +6,8 @@ Every PR keeps the existing gates intact: `zig fmt --check src/`, `zig build tes
 
 ```mermaid
 flowchart LR
-  R0["R0 ✓<br/>Decomposition +<br/>language decision"] --> R1["R1 ✓ (this PR)<br/>Contract crate"]
-  R1 --> R2["R2<br/>Executor +<br/>fake capability"]
+  R0["R0 ✓<br/>Decomposition +<br/>language decision"] --> R1["R1 ✓<br/>Contract crate"]
+  R1 --> R2["R2 ✓ (this PR)<br/>Executor +<br/>fake capability"]
   R2 --> R3["R3<br/>Easy-LLM<br/>capability"]
   R2 --> R4["R4<br/>Node + WASM<br/>adapters"]
   R3 --> R5["R5<br/>Consumer migration +<br/>legacy removal"]
@@ -26,7 +26,7 @@ flowchart LR
 
 **Exit:** one normative design. Architecture, roadmap, README, decisions and risks agree that Rust is normative and Zig is the oracle.
 
-## R1: Contract crate (this PR)
+## R1: Contract crate (done)
 
 **Scope**
 - `rust-toolchain.toml` (pinned 1.97.0) and `rust/fx-core/` (`Cargo.toml`, `Cargo.lock`, `src/{lib,contract,validate,wire,json_check,base64,redact}.rs`).
@@ -38,15 +38,22 @@ flowchart LR
 
 **Exit:** the contract is executable, validated, versioned and bounded. Every R1 behavior maps to a named test (BEHAVIOR_MATRIX §8). Invalid and oversized requests are rejected before any capability could be invoked.
 
-## R2: Executor and fake capability
+## R2: Executor and fake capability (this PR)
 
-**Scope**
-- `capability.rs`: the non-blocking `Capability` trait (`start`, bounded `poll`, `cancel`, `close`) from RUST_PRIMITIVES §6.
-- `executor.rs`, `normalize.rs`, `diagnostics.rs`: the one-attempt state machine, invariants I1–I10, cancellation guarantees C1–C7, bounded buffers and accumulation, and redacted diagnostics.
-- A deterministic fake capability and executor fixtures in the same format as the R1 fixtures.
-- Port BM-01 to BM-11, BM-15, BM-17 and A-1 to A-13. Port the normalizer test groups of `src/gateway/client.zig` (BEHAVIOR_MATRIX §4).
-- Resource-teardown tests on every terminal path; concurrency isolation; throughput micro-benchmark.
-- Oracle parity: replay the R2 fixtures through the Zig oracle's normalizer (a test-only harness against `consumeSseStream`) and diff outcomes. Record differences as intentional (with a decision reference) or fix them.
+**Delivered**
+- `capability.rs`: the non-blocking `Capability` trait (`start`, bounded `poll`, `cancel`, `close`) from RUST_PRIMITIVES §6, with `AttemptContext`, `PollBatch`, `StreamState`, `CancelStatus` and `Started`.
+- `executor.rs`: `execute` and `execute_document`, the one-attempt state machine with the `Host` callbacks (`cancel_requested`, `on_event`, `idle`) and `ExecutionReport`.
+- `normalize.rs`: invariants I1–I10 over typed events, `classify` (oracle `classifyProviderCompletion`) and `admit_proposals` (oracle `authoritativeToolAdmission`, structural only).
+- `diagnostics.rs`: content-free `Diagnostics`, `RequestShape` and `TerminalCause`.
+- `testing.rs`: the deterministic `FakeCapability` (scripted start, batches, pending, stall and failures; honest cancel status; recorded invocation counts).
+- `Limits` gains `max_events_per_poll`, `max_events_per_attempt` and `max_polls_per_attempt`.
+- Tests: `tests/executor.rs` (47 tests across validation and invocation, events and terminal state, delivery certainty, cancellation C1–C5, bounds and diagnostics, isolation) and `tests/executor_fixtures.rs` running 22 oracle-cited fixtures under `tests/fixtures/executor/`.
+- `check-boundaries.sh` additionally forbids global mutable state (`static mut`, `thread_local!`, `std::sync`, lazy statics) so concurrent executions stay isolated (BM-11).
+
+**Deferred from the original R2 scope** (recorded in BEHAVIOR_MATRIX §9.4):
+- Live oracle replay through a Zig test harness against `consumeSseStream`. It needs Zig changes, and R2 keeps `src/` unchanged; parity is established from the cited oracle tests instead.
+- Throughput micro-benchmark (moves to R6 with the other performance gates).
+- Wire encoding of `ExecutionReport` (proposal checks, disposition, diagnostics), which moves to R4 with the adapters that need it.
 
 **Dependencies:** R1. OD-8 (malformed-event policy) is already resolved.
 

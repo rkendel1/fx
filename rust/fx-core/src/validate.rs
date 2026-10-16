@@ -110,6 +110,9 @@ pub enum ValidationCode {
     EventFieldTooLarge,
     /// An event identifier or name is empty.
     EventFieldEmpty,
+    /// The request document could not be decoded (reported by
+    /// [`crate::executor::execute_document`]; see the `DecodeError` for the category).
+    Undecodable,
 }
 
 /// Where in the request the problem is. Indices are zero-based.
