@@ -36,18 +36,9 @@ export class HostProtocolError extends Error {
 }
 
 /**
- * @typedef {{
- *   memory: WebAssembly.Memory,
- *   fx_abi_version: () => number,
- *   fx_protocol_version: () => number,
- *   fx_alloc: (len: number) => number,
- *   fx_free: (ptr: number, len: number) => void,
- *   fx_session_new: (flags: number) => number,
- *   fx_session_free: (handle: number) => void,
- *   fx_begin: (handle: number, ptr: number, len: number) => number,
- *   fx_command: (handle: number, ptr: number, len: number) => number,
- *   fx_output_ptr: (handle: number) => number,
- * }} Exports
+ * The exports of a module built from the shared ABI (`rust/wasm-abi`). The prefix is the
+ * module's own: `fx` for the FX host session, `chip` for Chip's.
+ * @typedef {Record<string, any> & { memory: WebAssembly.Memory }} Exports
  */
 
 const encoder = new TextEncoder();
@@ -74,27 +65,37 @@ export class FxModule {
   }
 }
 
-/** One attempt, driven through the JSON protocol. */
-export class FxSession {
+/**
+ * A session driven through a JSON message protocol over the shared WebAssembly ABI. Every
+ * call copies bytes in, runs the module, and copies the JSON response out. The module
+ * reaches nothing; this class is the only thing that moves data across the boundary.
+ */
+export class JsonSession {
   #exports;
   #handle;
+  #prefix;
+  #version;
 
   /**
    * @param {Exports} exports
    * @param {number} handle
+   * @param {string} prefix the module's export prefix
+   * @param {number} version the protocol version added to commands
    */
-  constructor(exports, handle) {
+  constructor(exports, handle, prefix, version) {
     this.#exports = exports;
     this.#handle = handle;
+    this.#prefix = prefix;
+    this.#version = version;
   }
 
   /**
-   * Starts the attempt from the raw FX request document.
-   * @param {Uint8Array} request exact document bytes (strict decoding depends on them)
+   * Starts the session from its first document.
+   * @param {Uint8Array} document exact document bytes (strict decoding depends on them)
    * @returns {Record<string, any>}
    */
-  begin(request) {
-    return this.#call(this.#exports.fx_begin, request);
+  begin(document) {
+    return this.#call(`${this.#prefix}_begin`, document);
   }
 
   /**
@@ -103,7 +104,7 @@ export class FxSession {
    * @returns {Record<string, any>}
    */
   command(command) {
-    return this.#call(this.#exports.fx_command, encoder.encode(JSON.stringify({ v: PROTOCOL_VERSION, ...command })));
+    return this.#call(`${this.#prefix}_command`, encoder.encode(JSON.stringify({ v: this.#version, ...command })));
   }
 
   /**
@@ -113,59 +114,63 @@ export class FxSession {
    * @returns {Record<string, any>}
    */
   rawCommand(bytes) {
-    return this.#call(this.#exports.fx_command, bytes);
+    return this.#call(`${this.#prefix}_command`, bytes);
   }
 
   /** Releases the session. Safe to call twice. */
   free() {
     if (this.#handle !== 0) {
-      this.#exports.fx_session_free(this.#handle);
+      this.#exports[`${this.#prefix}_session_free`](this.#handle);
       this.#handle = 0;
     }
   }
 
   /**
-   * @param {(handle: number, ptr: number, len: number) => number} fn
+   * @param {string} name the export to call
    * @param {Uint8Array} input
    * @returns {Record<string, any>}
    */
-  #call(fn, input) {
+  #call(name, input) {
     if (this.#handle === 0) throw new HostProtocolError("freed", "the session was already freed");
     const exports = this.#exports;
-    const ptr = input.length > 0 ? exports.fx_alloc(input.length) : 0;
+    const prefix = this.#prefix;
+    const ptr = input.length > 0 ? exports[`${prefix}_alloc`](input.length) : 0;
     try {
       // Re-read the buffer after allocating: allocation can grow (and detach) the memory.
       if (input.length > 0) new Uint8Array(exports.memory.buffer, ptr, input.length).set(input);
-      const length = fn(this.#handle, ptr, input.length);
+      const length = exports[name](this.#handle, ptr, input.length);
       if (length < 0) throw new HostProtocolError("abi_error", `the module rejected the call (code ${length})`);
-      const outPtr = exports.fx_output_ptr(this.#handle);
+      const outPtr = exports[`${prefix}_output_ptr`](this.#handle);
       const bytes = new Uint8Array(exports.memory.buffer, outPtr, length).slice();
       return JSON.parse(decoder.decode(bytes));
     } finally {
-      if (input.length > 0) exports.fx_free(ptr, input.length);
+      if (input.length > 0) exports[`${prefix}_free`](ptr, input.length);
     }
   }
 }
 
-const REQUIRED = [
-  "memory",
-  "fx_abi_version",
-  "fx_protocol_version",
-  "fx_alloc",
-  "fx_free",
-  "fx_session_new",
-  "fx_session_free",
-  "fx_begin",
-  "fx_command",
-  "fx_output_ptr",
-];
+/** One FX attempt, driven through the FX host protocol. */
+export class FxSession extends JsonSession {
+  /**
+   * @param {Exports} exports
+   * @param {number} handle
+   */
+  constructor(exports, handle) {
+    super(exports, handle, "fx", PROTOCOL_VERSION);
+  }
+}
+
+const SUFFIXES = ["abi_version", "protocol_version", "alloc", "free", "session_new", "session_free", "begin", "command", "output_ptr"];
 
 /**
- * Compiles and validates the module.
+ * Compiles a module and checks it against the shared ABI: no imports, every export for
+ * `prefix`, matching ABI and protocol versions.
  * @param {string | URL | Uint8Array | ArrayBuffer} source a path, URL or the module bytes
- * @returns {Promise<FxModule>}
+ * @param {string} prefix the module's export prefix (`fx` or `chip`)
+ * @param {{ abi: number, protocol: number }} versions the versions this host speaks
+ * @returns {Promise<Exports>}
  */
-export async function loadModule(source) {
+export async function loadExports(source, prefix, versions) {
   const bytes =
     source instanceof Uint8Array
       ? source
@@ -180,16 +185,26 @@ export async function loadModule(source) {
     throw new HostProtocolError("unexpected_imports", `the module requests host imports (${names}); refusing to grant them`);
   }
   const exported = new Set(WebAssembly.Module.exports(module).map((entry) => entry.name));
-  const missing = REQUIRED.filter((name) => !exported.has(name));
+  const required = ["memory", ...SUFFIXES.map((suffix) => `${prefix}_${suffix}`)];
+  const missing = required.filter((name) => !exported.has(name));
   if (missing.length > 0) throw new HostProtocolError("missing_exports", `the module lacks exports: ${missing.join(", ")}`);
 
   const instance = await WebAssembly.instantiate(module, {});
   const exports = /** @type {Exports} */ (/** @type {unknown} */ (instance.exports));
-  if (exports.fx_abi_version() !== ABI_VERSION) {
-    throw new HostProtocolError("abi_mismatch", `module ABI ${exports.fx_abi_version()}, host ABI ${ABI_VERSION}`);
+  if (exports[`${prefix}_abi_version`]() !== versions.abi) {
+    throw new HostProtocolError("abi_mismatch", `module ABI ${exports[`${prefix}_abi_version`]()}, host ABI ${versions.abi}`);
   }
-  if (exports.fx_protocol_version() !== PROTOCOL_VERSION) {
-    throw new HostProtocolError("protocol_mismatch", `module protocol ${exports.fx_protocol_version()}, host protocol ${PROTOCOL_VERSION}`);
+  if (exports[`${prefix}_protocol_version`]() !== versions.protocol) {
+    throw new HostProtocolError("protocol_mismatch", `module protocol ${exports[`${prefix}_protocol_version`]()}, host protocol ${versions.protocol}`);
   }
-  return new FxModule(exports);
+  return exports;
+}
+
+/**
+ * Compiles and validates the FX host module.
+ * @param {string | URL | Uint8Array | ArrayBuffer} source a path, URL or the module bytes
+ * @returns {Promise<FxModule>}
+ */
+export async function loadModule(source) {
+  return new FxModule(await loadExports(source, "fx", { abi: ABI_VERSION, protocol: PROTOCOL_VERSION }));
 }

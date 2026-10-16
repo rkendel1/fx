@@ -15,6 +15,7 @@ import { loadModule, SupportFlags, HostProtocolError } from "./wasm.js";
 import { toSingleAttemptRequest, resultToEvents, eventsToCommands, failureDoc } from "./translate.js";
 
 export { SupportFlags, HostProtocolError };
+export { createChipRuntime, loadChipModule } from "./chip.js";
 
 /**
  * @typedef {import("@easy-llm/llm").LLMProvider} LLMProvider
