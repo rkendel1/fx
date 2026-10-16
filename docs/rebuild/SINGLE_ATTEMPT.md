@@ -96,11 +96,14 @@ Delivery maps `NotInvoked`→`DefinitelyUnsent`, `Invoked`→`PossiblySent`, `Ou
 | No tool schemas are sent | tool use is refused | optional tool definitions with JSON schemas on the request |
 | No assistant tool-call history | multi-turn tool conversations are refused | `toolCalls` on assistant messages |
 | Raw tool-argument text lost on malformed JSON | the whole call fails as a provider error | keep the raw text instead of throwing |
-| Streams report no usage or finish reason; `done` is synthesized for three providers | streamed answers from them are `Unverified` | **Closed for OpenAI and OpenRouter by rkendel1/llm#14** (finish reason, and usage when sent). Still open for Google (every stream ends interrupted), Anthropic and Ollama |
+| Streams report no usage or finish reason; `done` is synthesized for three providers | streamed answers from them are `Unverified` | **Closed for OpenAI and OpenRouter by rkendel1/llm#14** (finish reason, and usage when sent). Still open for Google (every stream ends interrupted), Anthropic and Ollama (completes as `other`, reason and usage dropped); R5 conformance records each as `unsupported` |
+| OpenAI-style and Google adapters keep reading after the provider's terminal marker; unparseable stream lines are skipped without a signal (all but Ollama) | output sent after the marker joins the output; text carried only by a skipped line is lost | stop at the provider's terminal marker; surface a line that fails to parse (R5 finds these; fixes belong in `rkendel1/llm`) |
 | No generation options transported | requests with them are refused | forward them |
 | No provider-executed tool records | none are produced | out of scope until a provider supports it |
 
-None of these is worked around in FX.
+None of these is worked around in FX. [PROVIDER_CONFORMANCE.md](PROVIDER_CONFORMANCE.md) states, per provider and with evidence, which of them still hold at the pinned Easy-LLM commit.
+
+**Collected responses (R5).** `generateOnce` returns a parsed response, not a stream. The host treats it as terminal proof only when the provider supplied a finish reason; otherwise the `done` is unverified and the attempt is interrupted. The port itself is unchanged: it already refuses to manufacture a `Finish` for an unverified `done` without a reason.
 
 ## Tests
 

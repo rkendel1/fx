@@ -91,7 +91,11 @@ export function resultToEvents(result) {
   if (result.text !== "") events.push({ type: "text", text: result.text });
   for (const toolCall of result.toolCalls) events.push({ type: "tool_call", toolCall, issues: [] });
   const { ok: _ok, model, ...rest } = result;
-  events.push({ type: "done", ...rest, model, terminal: "provider_marker" });
+  // A collected response is complete evidence only when the provider named a finish reason.
+  // Without one the response could be anything that parsed (an empty object, a wrong shape),
+  // and a finish is not invented for it: the executor reports an interrupted attempt.
+  const terminal = result.finishReason !== undefined ? "provider_marker" : "unverified";
+  events.push({ type: "done", ...rest, model, terminal });
   return events;
 }
 

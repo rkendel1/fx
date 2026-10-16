@@ -1,9 +1,10 @@
 name: Host bridge
 
 # Gates for the FX host bridge: the Rust session and WebAssembly ABI (rust/fx-host) and
-# the Node host (host/node). Additive: the Zig, native, N-API, WASM SDK, Full CI and
-# Rust core workflows are unchanged. No job needs credentials or network access to a
-# model provider; the Node tests run the real Easy-LLM OpenAI adapter against a local mock.
+# the Node host (host/node), including the provider conformance suite. Additive: the Zig,
+# native, N-API, WASM SDK, Full CI and Rust core workflows are unchanged. No job needs
+# credentials or network access to a model provider; the Node tests run the real Easy-LLM
+# adapters (OpenAI, OpenRouter, Anthropic, Google, Ollama) against local mocks.
 
 on:
   push:
@@ -11,12 +12,14 @@ on:
       - "rust/**"
       - "host/**"
       - "rust-toolchain.toml"
+      - "docs/rebuild/PROVIDER_CONFORMANCE.md"
       - ".github/workflows/host-bridge.yml"
   pull_request:
     paths:
       - "rust/**"
       - "host/**"
       - "rust-toolchain.toml"
+      - "docs/rebuild/PROVIDER_CONFORMANCE.md"
       - ".github/workflows/host-bridge.yml"
   workflow_dispatch:
 
@@ -135,3 +138,11 @@ jobs:
       - name: Example against the local mock provider
         working-directory: host/node
         run: npm run example:mock
+
+      # Every Easy-LLM adapter, through the real executor, against local mocks of its endpoint. Runs the
+      # suite twice and fails unless both runs are identical, checks the capability manifest against the
+      # results, and checks that docs/rebuild/PROVIDER_CONFORMANCE.md is the generated document. No
+      # credentials, no network beyond 127.0.0.1.
+      - name: Provider conformance (offline)
+        working-directory: host/node
+        run: npm run conformance:check

@@ -1,0 +1,328 @@
+{
+  "schema": 1,
+  "manifest_version": "1.0.0",
+  "description": "What the Rust FX execution path demonstrably supports for each Easy-LLM provider adapter. Descriptive evidence derived from conformance/ results, not a runtime contract: FX request validation, SingleAttemptCapability and the executor stay authoritative.",
+  "easy_llm": {
+    "package": "@easy-llm/llm",
+    "ref": "336939a037735f79e63a51e47a1da4ba8a349fe2"
+  },
+  "evidence": {
+    "kind": "mock-server",
+    "note": "Every status is established against a local mock of the provider wire format, through the real adapter and the real Rust executor. None was established against a live provider."
+  },
+  "providers": {
+    "openai": {
+      "adapter": "createOpenAIAdapter",
+      "live": "unverified",
+      "features": {
+        "text_generate": {
+          "status": "supported"
+        },
+        "text_stream": {
+          "status": "supported"
+        },
+        "finish_reason_generate": {
+          "status": "supported"
+        },
+        "finish_reason_stream": {
+          "status": "supported"
+        },
+        "usage_generate": {
+          "status": "supported"
+        },
+        "usage_stream": {
+          "status": "unverified",
+          "note": "The adapter parses a usage chunk when the provider sends one, but its request does not ask for streamed usage (no stream_options). Whether a live provider sends it through this path is not established."
+        },
+        "http_status": {
+          "status": "supported"
+        },
+        "retry_after": {
+          "status": "supported"
+        },
+        "cancellation": {
+          "status": "supported"
+        },
+        "late_events_ignored": {
+          "status": "unsupported",
+          "note": "The adapter reads to the end of input before yielding its terminal event, so text sent after the provider's own terminal marker joins the output."
+        },
+        "malformed_chunks_reported": {
+          "status": "unsupported",
+          "note": "The client skips a stream line it cannot parse. Text carried only by such a line is lost without any signal; the attempt can still complete with verified evidence."
+        },
+        "tool_definitions": {
+          "status": "unsupported",
+          "note": "Refused before dispatch (capability_unavailable, definitely_unsent): the FX path cannot offer a provider any tool. The adapters send tool names with empty schemas, which is not tool-definition support."
+        },
+        "tool_call_history": {
+          "status": "unsupported",
+          "note": "Refused before dispatch: assistant tool calls and tool results cannot be replayed through this path."
+        },
+        "images": {
+          "status": "unsupported",
+          "note": "Refused before dispatch: the FX path carries text only."
+        },
+        "generation_options": {
+          "status": "unsupported",
+          "note": "Refused before dispatch: no generation option is transported (the adapters send fixed values)."
+        },
+        "structured_output": {
+          "status": "unsupported",
+          "note": "Refused before dispatch: response formats cannot be requested."
+        }
+      }
+    },
+    "openrouter": {
+      "adapter": "createOpenRouterAdapter",
+      "live": "unverified",
+      "features": {
+        "text_generate": {
+          "status": "supported"
+        },
+        "text_stream": {
+          "status": "supported"
+        },
+        "finish_reason_generate": {
+          "status": "supported"
+        },
+        "finish_reason_stream": {
+          "status": "supported"
+        },
+        "usage_generate": {
+          "status": "supported"
+        },
+        "usage_stream": {
+          "status": "unverified",
+          "note": "The adapter parses a usage chunk when the provider sends one, but its request does not ask for streamed usage (no stream_options). Whether a live provider sends it through this path is not established."
+        },
+        "http_status": {
+          "status": "supported"
+        },
+        "retry_after": {
+          "status": "supported"
+        },
+        "cancellation": {
+          "status": "supported"
+        },
+        "late_events_ignored": {
+          "status": "unsupported",
+          "note": "The adapter reads to the end of input before yielding its terminal event, so text sent after the provider's own terminal marker joins the output."
+        },
+        "malformed_chunks_reported": {
+          "status": "unsupported",
+          "note": "The client skips a stream line it cannot parse. Text carried only by such a line is lost without any signal; the attempt can still complete with verified evidence."
+        },
+        "tool_definitions": {
+          "status": "unsupported",
+          "note": "Refused before dispatch (capability_unavailable, definitely_unsent): the FX path cannot offer a provider any tool. The adapters send tool names with empty schemas, which is not tool-definition support."
+        },
+        "tool_call_history": {
+          "status": "unsupported",
+          "note": "Refused before dispatch: assistant tool calls and tool results cannot be replayed through this path."
+        },
+        "images": {
+          "status": "unsupported",
+          "note": "Refused before dispatch: the FX path carries text only."
+        },
+        "generation_options": {
+          "status": "unsupported",
+          "note": "Refused before dispatch: no generation option is transported (the adapters send fixed values)."
+        },
+        "structured_output": {
+          "status": "unsupported",
+          "note": "Refused before dispatch: response formats cannot be requested."
+        }
+      }
+    },
+    "anthropic": {
+      "adapter": "createAnthropicAdapter",
+      "live": "unverified",
+      "features": {
+        "text_generate": {
+          "status": "supported"
+        },
+        "text_stream": {
+          "status": "supported"
+        },
+        "finish_reason_generate": {
+          "status": "supported"
+        },
+        "finish_reason_stream": {
+          "status": "unsupported",
+          "note": "The stream ends on message_stop, which is terminal evidence, but stop_reason (in message_delta) is not carried: every streamed completion reports finish_reason other."
+        },
+        "usage_generate": {
+          "status": "supported"
+        },
+        "usage_stream": {
+          "status": "unsupported",
+          "note": "The adapter does not carry usage from a stream."
+        },
+        "http_status": {
+          "status": "supported"
+        },
+        "retry_after": {
+          "status": "supported"
+        },
+        "cancellation": {
+          "status": "supported"
+        },
+        "late_events_ignored": {
+          "status": "supported"
+        },
+        "malformed_chunks_reported": {
+          "status": "unsupported",
+          "note": "The client skips a stream line it cannot parse; text carried only by such a line is lost without any signal."
+        },
+        "tool_definitions": {
+          "status": "unsupported",
+          "note": "Refused before dispatch (capability_unavailable, definitely_unsent): the FX path cannot offer a provider any tool. The adapters send tool names with empty schemas, which is not tool-definition support."
+        },
+        "tool_call_history": {
+          "status": "unsupported",
+          "note": "Refused before dispatch: assistant tool calls and tool results cannot be replayed through this path."
+        },
+        "images": {
+          "status": "unsupported",
+          "note": "Refused before dispatch: the FX path carries text only."
+        },
+        "generation_options": {
+          "status": "unsupported",
+          "note": "Refused before dispatch: no generation option is transported (the adapters send fixed values)."
+        },
+        "structured_output": {
+          "status": "unsupported",
+          "note": "Refused before dispatch: response formats cannot be requested."
+        }
+      }
+    },
+    "google": {
+      "adapter": "createGoogleAdapter",
+      "live": "unverified",
+      "features": {
+        "text_generate": {
+          "status": "supported"
+        },
+        "text_stream": {
+          "status": "unsupported",
+          "note": "The adapter yields its terminal event unconditionally at end of input and never reads the finish reason, so a streamed attempt can never present verified completion: it always ends interrupted with its partial output. The stream wire format (one JSON object per line) is also assumed, not checked against the live service."
+        },
+        "finish_reason_generate": {
+          "status": "supported"
+        },
+        "finish_reason_stream": {
+          "status": "unsupported",
+          "note": "No finish reason or other terminal evidence is carried from a Google stream."
+        },
+        "usage_generate": {
+          "status": "supported"
+        },
+        "usage_stream": {
+          "status": "unsupported",
+          "note": "A Google stream never completes, so no completed attempt carries usage."
+        },
+        "http_status": {
+          "status": "supported"
+        },
+        "retry_after": {
+          "status": "supported"
+        },
+        "cancellation": {
+          "status": "supported"
+        },
+        "late_events_ignored": {
+          "status": "unsupported",
+          "note": "The stream has no terminal marker, so there is no point after which output counts as late."
+        },
+        "malformed_chunks_reported": {
+          "status": "unsupported",
+          "note": "The client skips a stream line it cannot parse."
+        },
+        "tool_definitions": {
+          "status": "unsupported",
+          "note": "Refused before dispatch (capability_unavailable, definitely_unsent): the FX path cannot offer a provider any tool. The adapters send tool names with empty schemas, which is not tool-definition support."
+        },
+        "tool_call_history": {
+          "status": "unsupported",
+          "note": "Refused before dispatch: assistant tool calls and tool results cannot be replayed through this path."
+        },
+        "images": {
+          "status": "unsupported",
+          "note": "Refused before dispatch: the FX path carries text only."
+        },
+        "generation_options": {
+          "status": "unsupported",
+          "note": "Refused before dispatch: no generation option is transported (the adapters send fixed values)."
+        },
+        "structured_output": {
+          "status": "unsupported",
+          "note": "Refused before dispatch: response formats cannot be requested."
+        }
+      }
+    },
+    "ollama": {
+      "adapter": "createOllamaAdapter",
+      "live": "unverified",
+      "features": {
+        "text_generate": {
+          "status": "supported",
+          "note": "A collected response needs a done_reason to complete; a server that omits it yields an interrupted attempt."
+        },
+        "text_stream": {
+          "status": "supported"
+        },
+        "finish_reason_generate": {
+          "status": "supported"
+        },
+        "finish_reason_stream": {
+          "status": "unsupported",
+          "note": "The stream ends on done:true, which is terminal evidence, but done_reason is not carried: every streamed completion reports finish_reason other."
+        },
+        "usage_generate": {
+          "status": "unsupported",
+          "note": "The client does not read token counts from the response."
+        },
+        "usage_stream": {
+          "status": "unsupported",
+          "note": "The adapter does not carry usage from a stream."
+        },
+        "http_status": {
+          "status": "supported"
+        },
+        "retry_after": {
+          "status": "supported"
+        },
+        "cancellation": {
+          "status": "supported"
+        },
+        "late_events_ignored": {
+          "status": "supported"
+        },
+        "malformed_chunks_reported": {
+          "status": "supported"
+        },
+        "tool_definitions": {
+          "status": "unsupported",
+          "note": "Refused before dispatch (capability_unavailable, definitely_unsent): the FX path cannot offer a provider any tool. The adapters send tool names with empty schemas, which is not tool-definition support."
+        },
+        "tool_call_history": {
+          "status": "unsupported",
+          "note": "Refused before dispatch: assistant tool calls and tool results cannot be replayed through this path."
+        },
+        "images": {
+          "status": "unsupported",
+          "note": "Refused before dispatch: the FX path carries text only."
+        },
+        "generation_options": {
+          "status": "unsupported",
+          "note": "Refused before dispatch: no generation option is transported (the adapters send fixed values)."
+        },
+        "structured_output": {
+          "status": "unsupported",
+          "note": "Refused before dispatch: response formats cannot be requested."
+        }
+      }
+    }
+  }
+}

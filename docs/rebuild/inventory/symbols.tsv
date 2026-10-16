@@ -56,23 +56,56 @@ build.zig	368	addNapiArtifact	fn	private	0		no	OPS-BUILD	FX	REBUILD	rule	fn addN
 build.zig	412	discoverNodeIncludeDir	fn	private	0		no	OPS-BUILD	FX	REBUILD	rule	fn discoverNodeIncludeDir(b: *std.Build) []const u8 {
 build.zig	424	readGitCommit	fn	private	0		no	OPS-BUILD	FX	REBUILD	rule	fn readGitCommit(b: *std.Build) []const u8 {
 build.zig	436	readAppVersion	fn	private	0		no	OPS-BUILD	FX	REBUILD	rule	fn readAppVersion(b: *std.Build) []const u8 {
-host/node/examples/mock-server.mjs	13	sse	fn	module	18	sdk/node/test-term-workspace.mjs,tests/e2e/acp.test.ts,tests/e2e/conformance/client.ts	no	EMB-HOST	FX	KEEP	rule	const sse = (res, chunk) => res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+host/node/conformance/cases.mjs	29	match	fn	module	ambiguous		no	EMB-HOST	FX	KEEP	rule	function match(actual, expected, path, problems) {
+host/node/conformance/cases.mjs	47	check	fn	export	ambiguous		no	EMB-HOST	FX	KEEP	rule	export function check(actual, expected, label = "value") {
+host/node/conformance/cases.mjs	76	kinds	fn	module	2	benchmarks/approval_review_tty.ts,tests/e2e/tui-resize.test.ts	no	EMB-HOST	FX	KEEP	rule	const kinds = (/** @type {Run} */ run) => run.events.map((event) => event.type).filter((type) => type !== "metadata" && type !== "usage");
+host/node/conformance/cases.mjs	79	requestsOf	fn	module	0		no	EMB-HOST	FX	KEEP	rule	const requestsOf = (run) => run.http;
+host/node/conformance/harness.mjs	43	createAdapter	fn	module	0		no	EMB-HOST	FX	KEEP	rule	function createAdapter(id, baseUrl, easyLlm) {
+host/node/conformance/harness.mjs	60	sleep	fn	module	ambiguous		no	EMB-HOST	FX	KEEP	rule	const sleep = (/** @type {number} */ ms) => new Promise((resolve) => setTimeout(resolve, ms));
+host/node/conformance/harness.mjs	67	createHarness	fn	export	1	host/node/conformance/suite.mjs	no	EMB-HOST	FX	KEEP	rule	export async function createHarness({ easyLlm, wasm }) {
+host/node/conformance/harness.mjs	73	adapterFor	fn	module	0		no	EMB-HOST	FX	KEEP	rule	const adapterFor = (id, dead) => {
+host/node/conformance/harness.mjs	89	run	fn	module	ambiguous		no	EMB-HOST	FX	KEEP	rule	async function run(provider, scenario, mode, options = {}) {
+host/node/conformance/harness.mjs	131	checkInvariants	fn	export	1	host/node/conformance/suite.mjs	no	EMB-HOST	FX	KEEP	rule	export function checkInvariants(run, label) {
+host/node/conformance/manifest.mjs	68	loadManifest	fn	export	2	host/node/scripts/conformance.mjs,host/node/test/provider-conformance.test.mjs	no	EMB-HOST	FX	KEEP	rule	export function loadManifest(path = new URL("./manifest.json", import.meta.url)) {
+host/node/conformance/manifest.mjs	73	refOf	fn	module	0		no	EMB-HOST	FX	KEEP	rule	const refOf = (spec) => spec.split("#")[1] ?? "";
+host/node/conformance/manifest.mjs	79	evidenceFor	fn	export	1	host/node/conformance/report.mjs	no	EMB-HOST	FX	KEEP	rule	export function evidenceFor(results, provider, feature) {
+host/node/conformance/manifest.mjs	89	verifyManifest	fn	export	2	host/node/scripts/conformance.mjs,host/node/test/provider-conformance.test.mjs	no	EMB-HOST	FX	KEEP	rule	export function verifyManifest(manifest, results, options = {}) {
+host/node/conformance/mock-providers.mjs	55	sse	fn	module	19	host/node/examples/mock-server.mjs,sdk/node/test-term-workspace.mjs,tests/e2e/acp.test.ts	no	EMB-HOST	FX	KEEP	rule	const sse = (res, chunk) => res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+host/node/conformance/mock-providers.mjs	57	ndjson	fn	module	0		no	EMB-HOST	FX	KEEP	rule	const ndjson = (res, chunk) => res.write(`${JSON.stringify(chunk)}\n`);
+host/node/conformance/mock-providers.mjs	63	nativeFinish	fn	module	0		no	EMB-HOST	FX	KEEP	rule	function nativeFinish(provider, s) {
+host/node/conformance/mock-providers.mjs	72	openAiUsage	fn	module	0		no	EMB-HOST	FX	KEEP	rule	function openAiUsage(s) {
+host/node/conformance/mock-providers.mjs	86	anthropicUsage	fn	module	0		no	EMB-HOST	FX	KEEP	rule	function anthropicUsage(s) {
+host/node/conformance/mock-providers.mjs	100	googleUsage	fn	module	0		no	EMB-HOST	FX	KEEP	rule	function googleUsage(s) {
+host/node/conformance/mock-providers.mjs	119	collectedBody	fn	module	0		no	EMB-HOST	FX	KEEP	rule	function collectedBody(provider, s) {
+host/node/conformance/mock-providers.mjs	181	writeStream	fn	module	0		no	EMB-HOST	FX	KEEP	rule	function writeStream(provider, s, res) {
+host/node/conformance/mock-providers.mjs	187	raw	fn	module	ambiguous		no	EMB-HOST	FX	KEEP	rule	const raw = (line) => void res.write(`${line}\n`);
+host/node/conformance/mock-providers.mjs	258	route	fn	module	11	host/node/src/index.js,tests/e2e/acp.test.ts,tests/e2e/gateway-stream-lifecycle.test.ts	no	EMB-HOST	FX	KEEP	rule	function route(url, body) {
+host/node/conformance/mock-providers.mjs	288	startProviderMocks	fn	export	1	host/node/conformance/harness.mjs	no	EMB-HOST	FX	KEEP	rule	export async function startProviderMocks(scenarios) {
+host/node/conformance/mock-providers.mjs	385	baseFor	fn	module	0		no	EMB-HOST	FX	KEEP	rule	const baseFor = (root, provider) => {
+host/node/conformance/report.mjs	18	formatConsole	fn	export	1	host/node/scripts/conformance.mjs	no	EMB-HOST	FX	KEEP	rule	export function formatConsole(results) {
+host/node/conformance/report.mjs	36	toJson	fn	export	2	host/node/scripts/conformance.mjs,host/node/test/provider-conformance.test.mjs	no	EMB-HOST	FX	KEEP	rule	export function toJson(results) {
+host/node/conformance/report.mjs	47	formatMarkdown	fn	export	2	host/node/scripts/conformance.mjs,host/node/test/provider-conformance.test.mjs	no	EMB-HOST	FX	KEEP	rule	export function formatMarkdown(manifest, results) {
+host/node/conformance/suite.mjs	29	withDeadline	fn	module	0		no	EMB-HOST	FX	KEEP	rule	function withDeadline(work, label) {
+host/node/conformance/suite.mjs	46	runSuite	fn	export	2	host/node/scripts/conformance.mjs,host/node/test/provider-conformance.test.mjs	no	EMB-HOST	FX	KEEP	rule	export async function runSuite({ easyLlm, wasm, providers = PROVIDERS, cases }) {
+host/node/examples/mock-server.mjs	13	sse	fn	module	19	host/node/conformance/mock-providers.mjs,sdk/node/test-term-workspace.mjs,tests/e2e/acp.test.ts	no	EMB-HOST	FX	KEEP	rule	const sse = (res, chunk) => res.write(`data: ${JSON.stringify(chunk)}\n\n`);
 host/node/examples/mock-server.mjs	18	startMockServer	fn	export	2	host/node/examples/mock-openai.mjs,host/node/test/real-adapter.test.mjs	no	EMB-HOST	FX	KEEP	rule	export async function startMockServer() {
+host/node/scripts/conformance.mjs	26	flag	fn	module	6	tests/e2e/acp.test.ts,tests/e2e/render-lab/index.ts,tests/e2e/terminal-host.test.ts	no	EMB-HOST	FX	KEEP	rule	const flag = (name) => args.includes(name);
+host/node/scripts/conformance.mjs	28	value	fn	module	ambiguous		no	EMB-HOST	FX	KEEP	rule	const value = (name) => {
 host/node/scripts/lint.mjs	14	files	fn	module	27	host/node/test/conformance.test.mjs,sdk/scripts/package-libfx.mjs,tests/e2e/acp.test.ts	no	EMB-HOST	FX	KEEP	rule	function files(dir) {
-host/node/src/index.js	51	requestBytes	fn	module	0		no	EMB-HOST	FX	KEEP	rule	function requestBytes(request) {
-host/node/src/index.js	58	expectStatus	fn	module	0		no	EMB-HOST	FX	KEEP	rule	function expectStatus(response, expected) {
-host/node/src/index.js	69	defaultWasmPath	fn	export	3	host/node/test/abi.test.mjs,host/node/test/bridge.test.mjs,host/node/test/conformance.test.mjs	no	EMB-HOST	FX	KEEP	rule	export function defaultWasmPath() {
-host/node/src/index.js	81	createFxRuntime	fn	export	4	host/node/examples/live-smoke.mjs,host/node/examples/mock-openai.mjs,host/node/test/bridge.test.mjs	no	EMB-HOST	FX	KEEP	rule	export async function createFxRuntime(options = {}) {
-host/node/src/index.js	90	FxRuntime	class	export	0		no	EMB-HOST	FX	KEEP	rule	export class FxRuntime {
-host/node/src/index.js	98	FxRuntime.constructor	method	member	10	host/node/src/wasm.js,tests/e2e/acp.test.ts,tests/e2e/render-lab/index.ts	no	EMB-HOST	FX	KEEP	rule	constructor(module, easyLlm) {
-host/node/src/index.js	112	FxRuntime.execute	method	member	ambiguous		no	EMB-HOST	FX	KEEP	rule	async execute(request, options) {
+host/node/src/index.js	53	requestBytes	fn	module	0		no	EMB-HOST	FX	KEEP	rule	function requestBytes(request) {
+host/node/src/index.js	60	expectStatus	fn	module	0		no	EMB-HOST	FX	KEEP	rule	function expectStatus(response, expected) {
+host/node/src/index.js	71	defaultWasmPath	fn	export	3	host/node/test/abi.test.mjs,host/node/test/bridge.test.mjs,host/node/test/conformance.test.mjs	no	EMB-HOST	FX	KEEP	rule	export function defaultWasmPath() {
+host/node/src/index.js	83	createFxRuntime	fn	export	5	host/node/conformance/harness.mjs,host/node/examples/live-smoke.mjs,host/node/examples/mock-openai.mjs	no	EMB-HOST	FX	KEEP	rule	export async function createFxRuntime(options = {}) {
+host/node/src/index.js	92	FxRuntime	class	export	0		no	EMB-HOST	FX	KEEP	rule	export class FxRuntime {
+host/node/src/index.js	100	FxRuntime.constructor	method	member	10	host/node/src/wasm.js,tests/e2e/acp.test.ts,tests/e2e/render-lab/index.ts	no	EMB-HOST	FX	KEEP	rule	constructor(module, easyLlm) {
+host/node/src/index.js	114	FxRuntime.execute	method	member	ambiguous		no	EMB-HOST	FX	KEEP	rule	async execute(request, options) {
 host/node/src/translate.js	24	toSingleAttemptRequest	fn	export	1	host/node/src/index.js	no	EMB-HOST	FX	KEEP	rule	export function toSingleAttemptRequest(doc, signal, timeoutMs) {
 host/node/src/translate.js	43	usageDoc	fn	module	0		no	EMB-HOST	FX	KEEP	rule	function usageDoc(usage) {
 host/node/src/translate.js	58	failureDoc	fn	export	1	host/node/src/index.js	no	EMB-HOST	FX	KEEP	rule	export function failureDoc(failure) {
 host/node/src/translate.js	72	toolCallItem	fn	module	0		no	EMB-HOST	FX	KEEP	rule	function toolCallItem(call) {
 host/node/src/translate.js	87	resultToEvents	fn	export	1	host/node/src/index.js	no	EMB-HOST	FX	KEEP	rule	export function resultToEvents(result) {
-host/node/src/translate.js	104	eventsToCommands	fn	export	1	host/node/src/index.js	no	EMB-HOST	FX	KEEP	rule	export function eventsToCommands(events) {
-host/node/src/translate.js	110	flush	fn	module	ambiguous		no	EMB-HOST	FX	KEEP	rule	const flush = () => {
+host/node/src/translate.js	108	eventsToCommands	fn	export	1	host/node/src/index.js	no	EMB-HOST	FX	KEEP	rule	export function eventsToCommands(events) {
+host/node/src/translate.js	114	flush	fn	module	ambiguous		no	EMB-HOST	FX	KEEP	rule	const flush = () => {
 host/node/src/wasm.js	26	HostProtocolError	class	export	3	host/node/src/index.js,host/node/test/abi.test.mjs,host/node/test/bridge.test.mjs	no	EMB-HOST	FX	KEEP	rule	export class HostProtocolError extends Error {
 host/node/src/wasm.js	31	HostProtocolError.constructor	method	member	10	host/node/src/index.js,tests/e2e/acp.test.ts,tests/e2e/render-lab/index.ts	no	EMB-HOST	FX	KEEP	rule	constructor(code, message) {
 host/node/src/wasm.js	60	FxModule	class	export	1	host/node/src/index.js	no	EMB-HOST	FX	KEEP	rule	export class FxModule {
@@ -152,7 +185,7 @@ sdk/fx-sdk.js	890	releaseSubscriptions	fn	module	0		no	EMB-SDK	FX	REBUILD	rule	c
 sdk/fx-sdk.js	913	normalizePromptInput	fn	module	0		no	EMB-SDK	FX	REBUILD	rule	function normalizePromptInput(input) {
 sdk/fx-sdk.js	933	createFxAgent	fn	export	14	sdk/browser.js,sdk/index.html,sdk/node.js	no	EMB-ACP	Chip	MOVE	override	export async function createFxAgent(options) {
 sdk/fx-sdk.js	942	emit	fn	module	6	host/node/src/index.js,sdk/node/test-term-headless.mjs,sdk/tests/test-core.mjs	no	EMB-SDK	FX	REBUILD	rule	const emit = (type, detail = {}) => {
-sdk/fx-sdk.js	951	send	fn	module	24	host/node/src/index.js,host/node/test/conformance.test.mjs,sdk/index.html	no	EMB-SDK	FX	REBUILD	rule	const send = (message) => {
+sdk/fx-sdk.js	951	send	fn	module	25	host/node/conformance/cases.mjs,host/node/src/index.js,host/node/test/conformance.test.mjs	no	EMB-SDK	FX	REBUILD	rule	const send = (message) => {
 sdk/fx-sdk.js	956	request	fn	module	ambiguous		no	EMB-SDK	FX	REBUILD	rule	const request = (method, params = {}) => new Promise((resolve, reject) => {
 sdk/fx-sdk.js	1023	makeSession	fn	module	0		no	EMB-SDK	FX	REBUILD	rule	async function makeSession(result) {
 sdk/node.js	31	jspiFallbackError	fn	module	0		no	EMB-SDK	FX	REBUILD	rule	function jspiFallbackError(surface, nativeError) {
@@ -203,8 +236,8 @@ sdk/node/test-term-lifecycle.mjs	283	waitForChild	fn	module	0		no	EMB-TERM	fx-sh
 sdk/node/test-term-table-stream.mjs	22	fetch	fn	module	ambiguous		no	EMB-TERM	fx-shell	MOVE	rule	const fetch = async () => new Response(new ReadableStream({
 sdk/node/test-term-table-stream.mjs	43	flush	fn	module	ambiguous		no	EMB-TERM	fx-shell	MOVE	rule	const flush = () => new Promise((resolveFlush) => terminal.write("", resolveFlush));
 sdk/node/test-term-table-stream.mjs	44	grid	fn	module	33	benchmarks/approval_review_tty.ts,sdk/index.html,sdk/node/test-term-features.mjs	no	EMB-TERM	fx-shell	MOVE	rule	const grid = () => {
-sdk/node/test-term-workspace.mjs	66	sse	fn	module	18	host/node/examples/mock-server.mjs,tests/e2e/acp.test.ts,tests/e2e/conformance/client.ts	no	EMB-TERM	fx-shell	MOVE	rule	function sse(events) {
-sdk/node/test-term-workspace.mjs	73	toolCall	fn	module	8	host/node/src/translate.js,sdk/index.html,tests/e2e/acp.test.ts	no	EMB-TERM	fx-shell	MOVE	rule	function toolCall(id, command) {
+sdk/node/test-term-workspace.mjs	66	sse	fn	module	19	host/node/conformance/mock-providers.mjs,host/node/examples/mock-server.mjs,tests/e2e/acp.test.ts	no	EMB-TERM	fx-shell	MOVE	rule	function sse(events) {
+sdk/node/test-term-workspace.mjs	73	toolCall	fn	module	10	host/node/conformance/mock-providers.mjs,host/node/conformance/scenarios.mjs,host/node/src/translate.js	no	EMB-TERM	fx-shell	MOVE	rule	function toolCall(id, command) {
 sdk/node/test-term-workspace.mjs	80	terminalToolCalls	fn	module	0		no	EMB-TERM	fx-shell	MOVE	rule	function terminalToolCalls(calls) {
 sdk/node/test-term-workspace.mjs	109	textResponse	fn	module	0		no	EMB-TERM	fx-shell	MOVE	rule	function textResponse(value) {
 sdk/node/test-term-workspace.mjs	116	toolResult	fn	module	4	tests/e2e/acp.test.ts,tests/e2e/gateway-stream-lifecycle.test.ts,tests/e2e/mcp-stdio.test.ts	no	EMB-TERM	fx-shell	MOVE	rule	function toolResult(body, id) {
