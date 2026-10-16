@@ -2,7 +2,7 @@
 # Dependency and source boundary gate for rust/fx-host.
 #
 # Fails when the host crate gains a crate outside deps-allowlist.txt (fx-core,
-# fx-single-attempt and their allowlisted graph only), a provider SDK, HTTP/TLS client or async runtime, any
+# fx-single-attempt, fx-wasm-abi and their allowlisted graph only), a provider SDK, HTTP/TLS client or async runtime, any
 # dependency other than fx-core by relative path, or source that reaches the network, filesystem, processes, environment, threads, wall or
 # monotonic clocks, global mutable state, or code outside the crate.
 set -euo pipefail
@@ -36,6 +36,7 @@ fi
 deps_section="$(awk '/^\[dependencies\]/{f=1;next} /^\[/{f=0} f' Cargo.toml | grep -Ev '^\s*(#|$)' || true)"
 expected='fx-core = { path = "../fx-core" }
 fx-single-attempt = { path = "../fx-single-attempt" }
+fx-wasm-abi = { path = "../wasm-abi" }
 serde = { version = "=1.0.229", default-features = false, features = ["std", "derive"] }
 serde_json = { version = "=1.0.154", default-features = false, features = ["std"] }'
 if [[ "$deps_section" != "$expected" ]]; then

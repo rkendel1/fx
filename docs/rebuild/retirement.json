@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "note": "Retirement gates for duplicate FX code and Zig responsibilities. A gate is met only when check_retirement.py proves it. Blocked entries must name their blockers.",
+  "retired": [
+    {
+      "id": "chip-rs-toy-fx-core",
+      "what": "fx-core and fx-provider-http crates in rkendel1/chip-rs",
+      "gate": "chip-rs has no crate named fx-core, fx-provider-http or fx-single-attempt"
+    }
+  ],
+  "blocked": [
+    {
+      "id": "chip-legacy-http",
+      "what": "chip-legacy-http (reqwest executor) in rkendel1/chip-rs",
+      "blockers": ["the native chip binary (chip-cli) has no Easy-LLM host; moving it needs a product decision"],
+      "ratchet": "docs/product/legacy-http-consumers.txt in chip-rs may only shrink"
+    },
+    {
+      "id": "zig-agent-loop",
+      "what": "Zig fx ask provider tool-call loop and permission modes",
+      "blockers": ["permission modes ask/auto/yolo not ported", "provider-native tool-call loop not ported (Chip uses text decisions)", "silent-tool continuation not ported", "step-limit pause semantics not ported"]
+    },
+    {
+      "id": "zig-persistence",
+      "what": "Zig session store and event-log format",
+      "blockers": ["persistence stays Zig-owned; Chip does not duplicate it", "interrupted-turn persistence not ported"]
+    },
+    {
+      "id": "zig-surfaces",
+      "what": "TUI, ACP and SDK surfaces",
+      "blockers": ["no Rust equivalent exists"]
+    }
+  ],
+  "fx_must_not_depend_on": ["chip-core", "chip-inference", "chip-fx", "chip-wasm-host", "chip-legacy-http"],
+  "single_executor": {
+    "crate": "rust/fx-core",
+    "note": "No other crate under rust/ may define an execute entry point or an HTTP client"
+  }
+}

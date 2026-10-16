@@ -64,6 +64,10 @@ FX_CONFORMANCE_NATIVE=/tmp/native.json npm test
 
 Optional live smoke test (never run by CI, spends tokens): `FX_LIVE_SMOKE=1 OPENAI_API_KEY=... FX_LIVE_MODEL=... npm run example:live`.
 
+## Chip over FX
+
+`createChipRuntime` (exported from `src/index.js`) loads Rust Chip's module (`chip_wasm_host.wasm`, built from `rkendel1/chip-rs`) and drives it with this package: Chip's inference goes through FX, then the Easy-LLM adapter you pass; Chip's tool proposals are returned to your capability handler, which decides whether to run them. Offline example (no credentials): `CHIP_WASM=/path/to/chip_wasm_host.wasm npm run example:agent`. Tests and Zig parity: `npm run test:chip`. Design and differences: [`docs/rebuild/CHIP_FX_RUNTIME.md`](../../docs/rebuild/CHIP_FX_RUNTIME.md).
+
 ## Configuration
 
 None of its own. Provider credentials and endpoints are configured on the Easy-LLM provider you pass in. This package never reads the environment, the filesystem (other than the module file you point it at) or the network.

@@ -113,6 +113,20 @@ flowchart LR
 
 **Exit:** every adapter has deterministic conformance results; the manifest matches them; no unverified stream is normalized into a success (met for all five; Google streaming completion stays `unsupported`).
 
+## R6: Integrate Rust Chip with the authoritative FX (this PR)
+
+**Delivered here** (decision and evidence: [CHIP_FX_RUNTIME.md](CHIP_FX_RUNTIME.md))
+- Rust Chip (`rkendel1/chip-rs`) runs its inference through this repository's FX via the explicit adapter `chip-fx`; the duplicate toy FX core in chip-rs is removed.
+- One shared WebAssembly export surface (`rust/wasm-abi`) used by both `rust/fx-host` and Chip's `chip-wasm-host`; `host/node` `createChipRuntime` drives Chip, which drives FX, which drives the real Easy-LLM adapters.
+- Offline end to end tests, an offline multi-step example with one authorized tool interaction, and parity against a recording of the real Zig binary with four documented intentional differences (D1-D4).
+- Machine-checked retirement gates (`docs/rebuild/tools/check_retirement.py`, `retirement.json`) and the `unified-runtime.yml` workflow.
+
+**Not delivered, by design**
+- `chip-legacy-http` is not removed: the native `chip` binary has no Easy-LLM host. Zig responsibilities (permission modes, provider tool loop, persistence, TUI, ACP, SDK) are not ported and stay blocked with recorded blockers.
+- No live provider was run.
+
+**Exit:** one authoritative FX used by Chip; boundary checks fail CI on violations; blockers for the remaining legacy code are explicit.
+
 ## Consumer migration and legacy removal (formerly R5)
 
 This work keeps its content and dependencies; only its label changed when R5 was assigned to provider conformance. Other documents that say "R5" for consumer migration (RISKS, ARCHITECTURE, VERCEL_TRACE) mean this item.

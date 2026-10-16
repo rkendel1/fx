@@ -1,0 +1,457 @@
+{
+  "schema": 1,
+  "binary": "0.0.4",
+  "scenarios": {
+    "single_text": {
+      "about": "One text answer: a single inference, a completed turn.",
+      "script_items": 1,
+      "exit_code": 0,
+      "inference_requests": 1,
+      "requests": [
+        {
+          "roles": [
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "user"
+          ],
+          "tool_definitions": 25,
+          "tool_results_in_prompt": []
+        }
+      ],
+      "output": {
+        "output": "hello from fake",
+        "exit_code": 0,
+        "steps": 0,
+        "tool_calls": [],
+        "error": null,
+        "recovery": null
+      },
+      "seconds": 0.0
+    },
+    "tool_round_trip": {
+      "about": "A tool call, its result fed back, then a text answer: two inferences, one tool run.",
+      "script_items": 2,
+      "exit_code": 0,
+      "inference_requests": 2,
+      "requests": [
+        {
+          "roles": [
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "user"
+          ],
+          "tool_definitions": 25,
+          "tool_results_in_prompt": []
+        },
+        {
+          "roles": [
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "user",
+            "assistant",
+            "tool"
+          ],
+          "tool_definitions": 25,
+          "tool_results_in_prompt": [
+            {
+              "tool": "list_files",
+              "output": "{\"type\": \"text\", \"value\": \".:\\n- note.txt\\n\"}"
+            }
+          ]
+        }
+      ],
+      "output": {
+        "output": "done after the tool",
+        "exit_code": 0,
+        "steps": 1,
+        "tool_calls": [
+          {
+            "name": "list_files",
+            "status": "success"
+          }
+        ],
+        "error": null,
+        "recovery": null
+      },
+      "seconds": 0.0
+    },
+    "unknown_tool": {
+      "about": "A call to a tool that does not exist: the oracle reports it to the model and continues.",
+      "script_items": 2,
+      "exit_code": 0,
+      "inference_requests": 2,
+      "requests": [
+        {
+          "roles": [
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "user"
+          ],
+          "tool_definitions": 25,
+          "tool_results_in_prompt": []
+        },
+        {
+          "roles": [
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "user",
+            "assistant",
+            "tool"
+          ],
+          "tool_definitions": 25,
+          "tool_results_in_prompt": [
+            {
+              "tool": "no_such_tool",
+              "output": "{\"type\": \"text\", \"value\": \"Unsupported tool: no_such_tool\"}"
+            }
+          ]
+        }
+      ],
+      "output": {
+        "output": "recovered after the unsupported tool",
+        "exit_code": 0,
+        "steps": 1,
+        "tool_calls": [],
+        "error": null,
+        "recovery": null
+      },
+      "seconds": 0.0
+    },
+    "malformed_tool_arguments": {
+      "about": "A tool call whose arguments are not JSON: reported to the model, no tool runs.",
+      "script_items": 2,
+      "exit_code": 0,
+      "inference_requests": 2,
+      "requests": [
+        {
+          "roles": [
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "user"
+          ],
+          "tool_definitions": 25,
+          "tool_results_in_prompt": []
+        },
+        {
+          "roles": [
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "user",
+            "assistant",
+            "tool"
+          ],
+          "tool_definitions": 25,
+          "tool_results_in_prompt": [
+            {
+              "tool": "list_files",
+              "output": "{\"type\": \"text\", \"value\": \"{\\\"error\\\":{\\\"type\\\":\\\"tool_execution_failed\\\",\\\"tool_name\\\":\\\"list_files\\\",\\\"message\\\":\\\"Tool arguments were not valid JSON.\\\",\\\"suggestion\\\":\\\"Reissue the tool call with complete valid JSON arguments matching th"
+            }
+          ]
+        }
+      ],
+      "output": {
+        "output": "recovered after malformed arguments",
+        "exit_code": 0,
+        "steps": 0,
+        "tool_calls": [
+          {
+            "name": "list_files",
+            "status": "error"
+          }
+        ],
+        "error": null,
+        "recovery": null
+      },
+      "seconds": 0.0
+    },
+    "http_429_then_success": {
+      "about": "A rate limit, then success. The oracle repeats the request after an HTTP error whose delivery is ambiguous.",
+      "script_items": 2,
+      "exit_code": 0,
+      "inference_requests": 2,
+      "requests": [
+        {
+          "roles": [
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "user"
+          ],
+          "tool_definitions": 25,
+          "tool_results_in_prompt": []
+        },
+        {
+          "roles": [
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "user",
+            "system"
+          ],
+          "tool_definitions": 25,
+          "tool_results_in_prompt": []
+        }
+      ],
+      "output": {
+        "output": "hello after the rate limit",
+        "exit_code": 0,
+        "steps": 0,
+        "tool_calls": [],
+        "error": null,
+        "recovery": {
+          "state": "recovered",
+          "kind": "auto_recovered",
+          "attempt": 2,
+          "attempt_limit": 10,
+          "delay_seconds": 0,
+          "durable": false,
+          "message": "\u2713 recovered \u00b7 succeeded on attempt 2/10"
+        }
+      },
+      "seconds": 1.0
+    },
+    "http_500_then_success": {
+      "about": "A server error, then success.",
+      "script_items": 2,
+      "exit_code": 0,
+      "inference_requests": 2,
+      "requests": [
+        {
+          "roles": [
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "user"
+          ],
+          "tool_definitions": 25,
+          "tool_results_in_prompt": []
+        },
+        {
+          "roles": [
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "user",
+            "system"
+          ],
+          "tool_definitions": 25,
+          "tool_results_in_prompt": []
+        }
+      ],
+      "output": {
+        "output": "hello after the server error",
+        "exit_code": 0,
+        "steps": 0,
+        "tool_calls": [],
+        "error": null,
+        "recovery": {
+          "state": "recovered",
+          "kind": "auto_recovered",
+          "attempt": 2,
+          "attempt_limit": 10,
+          "delay_seconds": 0,
+          "durable": false,
+          "message": "\u2713 recovered \u00b7 succeeded on attempt 2/10"
+        }
+      },
+      "seconds": 0.3
+    },
+    "http_400": {
+      "about": "A client error: not retried, the turn fails.",
+      "script_items": 1,
+      "exit_code": 1,
+      "inference_requests": 1,
+      "requests": [
+        {
+          "roles": [
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "user"
+          ],
+          "tool_definitions": 25,
+          "tool_results_in_prompt": []
+        }
+      ],
+      "output": {
+        "output": "API request failed \u00b7 HTTP 400 \u00b7 bad request\n",
+        "exit_code": 1,
+        "steps": 0,
+        "tool_calls": [],
+        "error": null,
+        "recovery": null
+      },
+      "seconds": 0.0
+    },
+    "cut_stream_then_success": {
+      "about": "A stream cut off before its finish, then success.",
+      "script_items": 2,
+      "exit_code": 0,
+      "inference_requests": 2,
+      "requests": [
+        {
+          "roles": [
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "user"
+          ],
+          "tool_definitions": 25,
+          "tool_results_in_prompt": []
+        },
+        {
+          "roles": [
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "user",
+            "system"
+          ],
+          "tool_definitions": 25,
+          "tool_results_in_prompt": []
+        }
+      ],
+      "output": {
+        "output": "partial hello after the cut stream",
+        "exit_code": 0,
+        "steps": 0,
+        "tool_calls": [],
+        "error": null,
+        "recovery": {
+          "state": "recovered",
+          "kind": "auto_recovered",
+          "attempt": 2,
+          "attempt_limit": 10,
+          "delay_seconds": 0,
+          "durable": false,
+          "message": "\u2713 recovered \u00b7 succeeded on attempt 2/10"
+        }
+      },
+      "seconds": 0.3
+    },
+    "step_limit": {
+      "about": "Tool calls forever with a step limit of 2: the turn ends at the limit.",
+      "script_items": 5,
+      "exit_code": 1,
+      "inference_requests": 2,
+      "requests": [
+        {
+          "roles": [
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "user"
+          ],
+          "tool_definitions": 25,
+          "tool_results_in_prompt": []
+        },
+        {
+          "roles": [
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "system",
+            "user",
+            "assistant",
+            "tool"
+          ],
+          "tool_definitions": 25,
+          "tool_results_in_prompt": [
+            {
+              "tool": "list_files",
+              "output": "{\"type\": \"text\", \"value\": \".:\\n- note.txt\\n\"}"
+            }
+          ]
+        }
+      ],
+      "output": {
+        "output": "",
+        "exit_code": 1,
+        "steps": 2,
+        "tool_calls": [
+          {
+            "name": "list_files",
+            "status": "success"
+          },
+          {
+            "name": "list_files",
+            "status": "success"
+          }
+        ],
+        "error": null,
+        "recovery": null
+      },
+      "seconds": 0.0
+    }
+  }
+}
