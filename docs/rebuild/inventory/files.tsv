@@ -13,6 +13,7 @@ path	kind	lines	production_decls	tests	test_local_decls	capability	owner	disposi
 .github/workflows/publish-libfx.yml	ci	312	0	0	0	OPS-RELEASE	FX	REBUILD	.github/workflows/publish-libfx.yml	audit/04-embedding-build-ci.md	npm publish of libfx; package contents change to the inference core	
 .github/workflows/release.yml	ci	178	0	0	0	OPS-RELEASE	repo	REBUILD	.github/workflows/release.yml	audit/04-embedding-build-ci.md	GitHub release plus Vercel Blob/CDN upload; CDN step removed or rehosted	
 .github/workflows/rust-core.yml	ci	112	0	0	0	OPS-CI	repo	KEEP	.github/workflows/rust-core.yml	BEHAVIOR_MATRIX.md §8-11 (R1 contract, R2 executor, R3 adapter and R4 bridge tests)	Rust core gates: fmt, clippy, test, native and wasm32 builds, boundary check	
+.github/workflows/unified-runtime.yml	ci	95	0	0	0	OPS-CI	repo	KEEP	.github/workflows/unified-runtime.yml	BEHAVIOR_MATRIX.md §8-11 (R1 contract, R2 executor, R3 adapter and R4 bridge tests)	Chip over FX gates: retirement checks, Chip and FX wasm builds, integrated tests, Zig parity, offline example	
 .gitignore	config	58	0	0	0	OPS-REPO	repo	KEEP	.gitignore	audit/04-embedding-build-ci.md		
 AGENTS.md	doc	457	0	0	0	DOC	repo	REBUILD	AGENTS.md	VERCEL_TRACE.md	rewritten for the new module boundaries	
 CHANGELOG.md	doc	91	0	0	0	DOC	repo	KEEP	CHANGELOG.md	VERCEL_TRACE.md	history is retained	
@@ -56,6 +57,8 @@ host/node/src/index.js	js	297	7	0	0	EMB-HOST	FX	KEEP	host/	BEHAVIOR_MATRIX.md §
 host/node/src/translate.js	js	148	7	0	0	EMB-HOST	FX	KEEP	host/	BEHAVIOR_MATRIX.md §8-11 (R1 contract, R2 executor, R3 adapter and R4 bridge tests)	Node host over Easy-LLM providers (R4); OD-5	toSingleAttemptRequest,failureDoc,resultToEvents,eventsToCommands
 host/node/src/wasm.js	js	210	16	0	0	EMB-HOST	FX	KEEP	host/	BEHAVIOR_MATRIX.md §8-11 (R1 contract, R2 executor, R3 adapter and R4 bridge tests)	Node host over Easy-LLM providers (R4); OD-5	HostProtocolError,FxModule,JsonSession,FxSession,loadExports,loadModule
 host/node/test-chip/chip.test.mjs	js	171	1	0	0	EMB-HOST	FX	KEEP	host/	BEHAVIOR_MATRIX.md §8-11 (R1 contract, R2 executor, R3 adapter and R4 bridge tests)	Node host over Easy-LLM providers (R4); OD-5	
+host/node/test-chip/parity.test.mjs	js	125	3	0	0	EMB-HOST	FX	KEEP	host/	BEHAVIOR_MATRIX.md §8-11 (R1 contract, R2 executor, R3 adapter and R4 bridge tests)	Node host over Easy-LLM providers (R4); OD-5	
+host/node/test-chip/support.mjs	js	56	3	0	0	EMB-HOST	FX	KEEP	host/	BEHAVIOR_MATRIX.md §8-11 (R1 contract, R2 executor, R3 adapter and R4 bridge tests)	Node host over Easy-LLM providers (R4); OD-5	spec,runtimes,scenario
 host/node/test/abi.test.mjs	test	78	0	6	0	EMB-HOST	FX	KEEP	host/	BEHAVIOR_MATRIX.md §8-11 (R1 contract, R2 executor, R3 adapter and R4 bridge tests)	Node host over Easy-LLM providers (R4); OD-5	
 host/node/test/bridge.test.mjs	test	432	0	28	0	EMB-HOST	FX	KEEP	host/	BEHAVIOR_MATRIX.md §8-11 (R1 contract, R2 executor, R3 adapter and R4 bridge tests)	Node host over Easy-LLM providers (R4); OD-5	
 host/node/test/conformance.test.mjs	test	120	0	1	0	EMB-HOST	FX	KEEP	host/	BEHAVIOR_MATRIX.md §8-11 (R1 contract, R2 executor, R3 adapter and R4 bridge tests)	Node host over Easy-LLM providers (R4); OD-5	
