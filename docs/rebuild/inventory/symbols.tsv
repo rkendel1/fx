@@ -67,9 +67,8 @@ host/node/conformance/harness.mjs	73	adapterFor	fn	module	0		no	EMB-HOST	FX	KEEP
 host/node/conformance/harness.mjs	89	run	fn	module	ambiguous		no	EMB-HOST	FX	KEEP	rule	async function run(provider, scenario, mode, options = {}) {
 host/node/conformance/harness.mjs	131	checkInvariants	fn	export	1	host/node/conformance/suite.mjs	no	EMB-HOST	FX	KEEP	rule	export function checkInvariants(run, label) {
 host/node/conformance/manifest.mjs	68	loadManifest	fn	export	2	host/node/scripts/conformance.mjs,host/node/test/provider-conformance.test.mjs	no	EMB-HOST	FX	KEEP	rule	export function loadManifest(path = new URL("./manifest.json", import.meta.url)) {
-host/node/conformance/manifest.mjs	73	refOf	fn	module	0		no	EMB-HOST	FX	KEEP	rule	const refOf = (spec) => spec.split("#")[1] ?? "";
-host/node/conformance/manifest.mjs	79	evidenceFor	fn	export	1	host/node/conformance/report.mjs	no	EMB-HOST	FX	KEEP	rule	export function evidenceFor(results, provider, feature) {
-host/node/conformance/manifest.mjs	89	verifyManifest	fn	export	2	host/node/scripts/conformance.mjs,host/node/test/provider-conformance.test.mjs	no	EMB-HOST	FX	KEEP	rule	export function verifyManifest(manifest, results, options = {}) {
+host/node/conformance/manifest.mjs	76	evidenceFor	fn	export	1	host/node/conformance/report.mjs	no	EMB-HOST	FX	KEEP	rule	export function evidenceFor(results, provider, feature) {
+host/node/conformance/manifest.mjs	86	verifyManifest	fn	export	2	host/node/scripts/conformance.mjs,host/node/test/provider-conformance.test.mjs	no	EMB-HOST	FX	KEEP	rule	export function verifyManifest(manifest, results, options = {}) {
 host/node/conformance/mock-providers.mjs	55	sse	fn	module	19	host/node/examples/mock-server.mjs,sdk/node/test-term-workspace.mjs,tests/e2e/acp.test.ts	no	EMB-HOST	FX	KEEP	rule	const sse = (res, chunk) => res.write(`data: ${JSON.stringify(chunk)}\n\n`);
 host/node/conformance/mock-providers.mjs	57	ndjson	fn	module	0		no	EMB-HOST	FX	KEEP	rule	const ndjson = (res, chunk) => res.write(`${JSON.stringify(chunk)}\n`);
 host/node/conformance/mock-providers.mjs	63	nativeFinish	fn	module	0		no	EMB-HOST	FX	KEEP	rule	function nativeFinish(provider, s) {

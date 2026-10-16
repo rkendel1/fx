@@ -76,6 +76,44 @@ jobs:
       - name: Dependency and source boundaries
         run: ./check-boundaries.sh
 
+  # The shared WebAssembly export surface (rust/wasm-abi). fx-host expands it for its own
+  # module; Chip's host session in rkendel1/chip-rs expands the same text for another.
+  wasm-abi:
+    name: Shared wasm ABI (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    defaults:
+      run:
+        working-directory: rust/wasm-abi
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned toolchain
+        working-directory: .
+        run: |
+          channel="$(sed -nE 's/^channel = "([^"]+)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal \
+            --component rustfmt,clippy --target wasm32-unknown-unknown
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Lint
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Test (the macro expansion, native)
+        run: cargo test --locked
+
+      - name: Build wasm32-unknown-unknown
+        run: cargo build --locked --release --target wasm32-unknown-unknown
+
+      - name: Dependency and source boundaries
+        run: ./check-boundaries.sh
+
   node-host:
     name: Node host (node ${{ matrix.node }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
