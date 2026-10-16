@@ -1,0 +1,22 @@
+[package]
+name = "chip-agent"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "Apache-2.0"
+description = "Chip: the portable agent-turn state machine. Plans, authorizes and orchestrates; inference is FX's."
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+fx-core = { path = "../fx-core" }
+serde_json = { version = "=1.0.154", default-features = false, features = ["std"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
