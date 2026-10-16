@@ -24,8 +24,18 @@
       "id": "zig-agent-loop",
       "what": "Zig fx ask provider tool-call loop and permission modes",
       "blockers": [
-        "the agent-parity workflow must pass on main with a freshly built Zig binary and reproduce docs/rebuild/evidence/agent-parity.json (the committed evidence was generated with a prebuilt 0.0.4 binary)",
-        "the retirement diff must be reviewed before any Zig agent-loop code is deleted or disabled"
+        "the retirement diff must be reviewed before any Zig agent-loop code is deleted or disabled",
+        "no import/dependency map of src/core/agent exists yet; main.zig, src/acp, src/gateway, src/ui and the subagent code import it, so no deletion order is established",
+        "the parity corpus covers the approved scenarios only, not the wider Zig agent infrastructure (TUI, ACP, gateway, MCP, hooks, tasks, subagents)"
+      ],
+      "met_blockers": [
+        {
+          "blocker": "the agent-parity workflow must pass on main with a freshly built Zig binary and reproduce docs/rebuild/evidence/agent-parity.json (the committed evidence was generated with a prebuilt 0.0.4 binary)",
+          "evidence": "https://github.com/rkendel1/fx/actions/runs/38974849416",
+          "run_id": 38974849416,
+          "commit": "6e9f7be840e5a37d2c624af3f4fea5df6ae24ef9",
+          "established": "Both jobs succeeded on main: the Zig binary and Rust Chip were built fresh, the corpus ran against both, and the result agreed with the committed evidence. This shows the approved corpus is reproducible. It is not behavioral equivalence and not readiness to remove the wider agent infrastructure."
+        }
       ],
       "accepted_limitations": "Owner decision 2026-10-16: the two crash-recovery differences are accepted as known limitations (conditional on the visible retry warning) and the ten unsupported behaviors are declared unsupported in the first Rust release. See docs/rebuild/parity/agent-loop.v1.json and chip-rs docs/product/release-limitations.md. This is not a claim of parity."
     },

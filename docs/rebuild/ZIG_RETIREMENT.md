@@ -34,6 +34,13 @@ Per-file ownership is in `docs/rebuild/inventory/` (generated; do not edit by ha
 2. **Agent loop** (`zig-agent-loop`). Gate: a recorded parity run of turn, tool, cancellation and recovery against the Zig loop for the
    scenarios in `docs/rebuild/BEHAVIOR_MATRIX.md`, plus the four listed blockers (permission modes, provider-native tool calls,
    silent-tool continuation, step-limit pause). Only then does Zig stop being the loop of record for `fx ask`.
+   **Status (recorded 2026-10-16).** The fresh-build reproduction blocker is **met**: the `agent-parity` workflow passed on `main` with a
+   freshly built Zig binary and Rust Chip, and the result agreed with `docs/rebuild/evidence/agent-parity.json`
+   ([run 38974849416](https://github.com/rkendel1/fx/actions/runs/38974849416), commit `6e9f7be`). That establishes reproducibility for the
+   approved corpus only. It is not complete behavioral equivalence and not readiness to remove the wider Zig agent infrastructure.
+   `zig-agent-loop` **stays `blocked`**: the retirement diff has not been reviewed, no import map of `src/core/agent` exists, and the corpus
+   does not cover the TUI, ACP, gateway, MCP, hooks, tasks or subagents. The `retirement_ready` flag inside `agent-parity.json` is a
+   statement about the corpus gate, not about this entry. Nothing is deleted or disabled.
 3. **Persistence** (`zig-persistence`). Gate: Rust is the only writer for a session started by Rust, and Zig can resume it (already
    covered) and the reverse, including interrupted turns.
 4. **Surfaces** (`zig-surfaces`), in dependency order: tools/builtins, MCP, gateway, ACP, SDK entry points, TUI last (it depends on
