@@ -1,6 +1,6 @@
-# Open decisions
+# Decisions
 
-These questions are still open and each one changes the architecture or the PR sequence. Each entry gives the evidence, the options, and a recommendation. Nothing in this PR depends on the answers. The roadmap marks the PR that each decision blocks.
+Each entry gives the evidence, the options and a recommendation or decision. Each one changes the architecture or the R0–R6 sequence in [ROADMAP.md](ROADMAP.md), which marks the step it blocks. Decided: OD-5 (WASM reactor ABI), OD-8 (reject malformed events) and OD-9 (Rust). Open: OD-1, OD-2, OD-3, OD-4, OD-6, OD-7.
 
 ## OD-1: What happens to the product shell and the in-repo agent loop?
 
@@ -13,25 +13,25 @@ These questions are still open and each one changes the architecture or the PR s
 
 **Options.**
 1. Move the agent loop and shell to Chip now. This cannot be verified here, because Chip's code is unavailable.
-2. Keep both in this repository as consumer #1 of the new `src/fx` module. Enforce the module boundary mechanically, and transfer them to Chip later as a directory move.
+2. Keep both in this repository as consumer #1 of the new Rust core (`rust/fx-core`). Enforce the boundary mechanically, and transfer them to Chip later as a directory move.
 3. Delete the shell and keep only the FX core. That breaks every current user of `fx`.
 
 **Recommendation: option 2.**
-- `src/fx/` becomes the FX package.
-- All other code is relabeled as consumer code and may reach inference only through `src/fx`'s public API. An import-boundary check enforces this: no file under `src/fx/` imports outside `src/fx/` and `src/core/shared/io.zig`, and no file outside `src/fx/` imports `src/fx/` internals.
+- `rust/fx-core` is the FX package (OD-9).
+- All Zig code is relabeled as consumer code and may reach inference only through the boundary R4/R5 define for the Rust core. The core's own isolation is already enforced by `rust/fx-core/check-boundaries.sh` (no imports of product code, no ambient authority, dependency allowlist).
 - The transfer to Chip becomes a later directory move with no semantic change.
 
-**Blocks:** PR 5 scope (which commands survive) and PR 6 (release artifacts).
+**Blocks:** R5 scope (which commands survive) and R6 (release artifacts).
 
 ## OD-2: What interface does Easy-LLM offer, and in which language?
 
 **Evidence.**
 - No Easy-LLM code or interface exists in this workspace.
-- FX today is pure Zig with zero dependencies.
+- FX's new core is a Rust crate with a std-plus-serde dependency allowlist (OD-9). The legacy product is pure Zig.
 - Its embedding hosts are native, Node and browser.
 
 **Options.**
-1. Easy-LLM implements `fx.contract.Capability` in Zig and links into native builds.
+1. Easy-LLM (the `rkendel1/llm` project) exposes a lower-level single-attempt API, and an explicit adapter implements `fx_core::Capability` over it.
 2. Easy-LLM exposes a C ABI that FX wraps in a `Capability`.
 3. Easy-LLM is a JavaScript or other-language library or service, reached through host adapters (N-API, WASM) or versioned local IPC.
 
@@ -40,7 +40,7 @@ These questions are still open and each one changes the architecture or the PR s
 - For JavaScript hosts, a JS implementation pushes contract events into the adapters (§4 C of [ARCHITECTURE.md](ARCHITECTURE.md)).
 - Add local IPC only if Easy-LLM must run in its own process. If added, it carries exactly the contract JSON.
 
-**Blocks:** PR 3. PR 1 and PR 2 do not depend on it, because they use the fake capability only.
+**Blocks:** R3. R1 and R2 do not depend on it; R2 uses the fake capability only. The single-attempt API must not silently invoke model fallback or duplicate routing policy, and FX never calls the high-level `llm()` function.
 
 ## OD-3: Where does the N-API addon get its capability?
 
@@ -57,7 +57,7 @@ These questions are still open and each one changes the architecture or the PR s
 - Ship option 2 first. It removes all native networking from the addon, matches today's proven bridge, and does not wait on a native Easy-LLM.
 - Add option 1 when OD-2 resolves to a native capability.
 
-**Blocks:** PR 4.
+**Blocks:** R4.
 
 ## OD-4: Who owns permission policy: Chip or Attn?
 
@@ -94,7 +94,9 @@ FX is unaffected either way, since it neither admits nor executes. This is recor
 - It runs in any WebAssembly host.
 - The cost is that the host drives the loop, which a small JS helper in `libfx` does.
 
-**Blocks:** PR 4.
+**Status:** the reactor ABI (option 1) is adopted as the R4 design in RUST_PRIMITIVES.md §10; R1 already builds the contract for `wasm32-unknown-unknown`.
+
+**Blocks:** R4.
 
 ## OD-6: Where is the rebuilt FX published, and under which names?
 
@@ -108,27 +110,27 @@ FX is unaffected either way, since it neither admits nor executes. This is recor
 **Recommendation.**
 - Do not rename anything until the owner decides.
 - The rebuilt core needs no repository URL in code: the only one today is the attribution header, which moves to Easy-LLM or is removed.
-- Package naming is a release decision for PR 6.
+- Package naming is a release decision for R6. The Rust crate is `publish = false` until then.
 
-**Blocks:** PR 6.
+**Blocks:** R6.
 
-## OD-7: How does the product keep working between PR 3 and the arrival of an Easy-LLM capability?
+## OD-7: How does the product keep working until an Easy-LLM capability exists?
 
 **Evidence.**
 - The shell's only inference backend today is the Gateway code.
-- If PR 3 deletes it before Easy-LLM provides a capability, `fx` stops working.
+- If the legacy path is deleted before Easy-LLM provides a capability, `fx` stops working.
 
 **Options.**
-1. Make PR 3 wait for Easy-LLM.
-2. In PR 3, wrap the existing Gateway client as a capability owned by consumer code (`src/shell/legacy_gateway_capability.zig`). It stays outside `src/fx`, keeps every current behavior, and is deleted in PR 5 when the Easy-LLM capability replaces it.
+1. Make consumer migration (R5) wait for Easy-LLM.
+2. Wrap the existing Gateway client as a capability owned by consumer code, outside `rust/fx-core`. It keeps every current behavior and is deleted in R5 when the Easy-LLM capability replaces it.
 
 **Recommendation: option 2, with two conditions.**
-- The wrapper must not live in `src/fx`.
+- The wrapper must not live in `rust/fx-core` or appear in its dependency graph.
 - FX's own build and tests must not depend on it (BM-13).
 
-This is not "retaining Vercel dependencies to avoid rewriting adapters": FX itself is Vercel-free from PR 2 onward. The wrapper only keeps the product usable during migration, and it carries a fixed removal milestone.
+This is not "retaining Vercel dependencies to avoid rewriting adapters": FX itself is Vercel-free from R1 onward (the boundary gate forbids HTTP clients and provider SDKs in the core). The wrapper only keeps the product usable during migration, and it carries a fixed removal milestone.
 
-**Blocks:** PR 3 sequencing.
+**Blocks:** R5 sequencing.
 
 ## OD-8: Should the normalizer reject or skip malformed capability events?
 
@@ -141,4 +143,27 @@ This is not "retaining Vercel dependencies to avoid rewriting adapters": FX itse
 - Easy-LLM's SSE adapter may keep skipping malformed *transport* lines before it produces typed events.
 - This is recorded as an intentional behavior change (R-9).
 
-**Blocks:** PR 2.
+**Status:** decided as recommended. In R1 the wire decoder already rejects unknown event tags and invalid enum values (`event_unknown_type`, `event_finish_unknown_reason` fixtures).
+
+**Blocks:** R2.
+
+## OD-9: Implementation language of the rebuilt core (decided: Rust)
+
+**Evidence.**
+- The legacy implementation is Zig 0.16 with no dependencies ([BASELINE.md](BASELINE.md)).
+- [RUST_PRIMITIVES.md](RUST_PRIMITIVES.md) §2 laid out three options: keep Zig, replace the planned core with Rust, or maintain both.
+- The project owner chose Rust in the R1 PR request ("Rust is the implementation language for the rebuilt FX inference core").
+
+**Decision: option B.**
+- Rust is the normative implementation of the contract and, from R2, the executor (`rust/fx-core`).
+- The Zig implementation remains the behavioral oracle until R5. It is never a second supported production inference core.
+- Option C (maintain both) is rejected: duplicated semantics and a permanent conformance burden.
+
+**Consequences.**
+- The planned Zig module `src/fx/` will not be created.
+- Contract tests live in Rust. Oracle parity is checked by replaying shared fixtures (R2).
+- Adds Cargo, a pinned toolchain (`rust-toolchain.toml`, 1.97.0), a lockfile, a dependency allowlist and a separate CI workflow (`rust-core.yml`). Existing Zig gates are unchanged.
+- The Zig consumers will reach the Rust executor through a C-compatible boundary designed in R4/R5 (RUST_PRIMITIVES §11). That boundary is a new risk (R-18).
+
+**Status:** decided. Implemented first in R1.
+

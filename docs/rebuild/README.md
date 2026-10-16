@@ -1,14 +1,24 @@
 # FX forensic decomposition and clean-room rebuild plan
 
-This directory holds the architecture discovery for rebuilding FX as a small, provider-neutral inference core without Vercel dependencies. It is a planning artifact. **It changes no product code, public API, dependency or runtime behavior.** The only additions are documentation and two inventory tools that nothing in the build, tests or CI imports.
+This directory holds the architecture discovery and the rebuild plan for turning FX into a small, provider-neutral inference core without Vercel dependencies.
 
-Audited commit: `255c6cf125034baad48c99bd618783d63dab7df1` ([BASELINE.md](BASELINE.md)).
+## Status
+
+| Step | State | Where |
+| --- | --- | --- |
+| R0 decomposition and language decision | Done. Rust is the implementation language (OD-9); the Zig code under `src/` is the behavioral oracle until R5 | this directory, [RUST_PRIMITIVES.md](RUST_PRIMITIVES.md), [DECISIONS.md](DECISIONS.md) |
+| R1 contract crate | Implemented | [`rust/fx-core`](../../rust/fx-core), test map in [BEHAVIOR_MATRIX.md](BEHAVIOR_MATRIX.md) §8, gates in `.github/workflows/rust-core.yml` |
+| R2–R6 | Planned | [ROADMAP.md](ROADMAP.md) |
+
+The decomposition documents changed no product code. R1 adds the Rust crate and its CI workflow; it does not touch any Zig source, product caller, public API, npm package or existing workflow.
+
+Audited commit for the decomposition: `255c6cf125034baad48c99bd618783d63dab7df1` ([BASELINE.md](BASELINE.md)).
 
 ## Documents
 
 | # | Required artifact | Where |
 | --- | --- | --- |
-| 1 | FX inventory: every in-scope file with purpose, classification and review status | [inventory/files.tsv](inventory/files.tsv) (784 rows), totals in [inventory/summary.md](inventory/summary.md) |
+| 1 | FX inventory: every in-scope file with purpose, classification and review status | [inventory/files.tsv](inventory/files.tsv) (848 rows at R1: the 784 audited files plus the R1 additions), totals in [inventory/summary.md](inventory/summary.md) |
 | 2 | Method inventory: every production method and public type with behavior, dependencies, callers, tests and disposition | [inventory/symbols.tsv](inventory/symbols.tsv) (23,967 declarations, about 4.4 MB; open raw), curated refinements in [inventory/symbol_overrides.tsv](inventory/symbol_overrides.tsv), behavior in [audit/](audit/) |
 | 3 | Dependency report, including all Vercel-specific paths | [VERCEL_TRACE.md](VERCEL_TRACE.md) §1-3 |
 | 4 | Capability ledger | [CAPABILITIES.md](CAPABILITIES.md) |
@@ -20,6 +30,8 @@ Audited commit: `255c6cf125034baad48c99bd618783d63dab7df1` ([BASELINE.md](BASELI
 | 10 | Implementation roadmap | [ROADMAP.md](ROADMAP.md) |
 | 11 | Removal ledger | [VERCEL_TRACE.md](VERCEL_TRACE.md) §4 |
 | 12 | Open decisions | [DECISIONS.md](DECISIONS.md) |
+| — | Rust primitive design (normative language and crate plan) | [RUST_PRIMITIVES.md](RUST_PRIMITIVES.md) |
+| — | Rust contract implementation (R1) | [`rust/fx-core`](../../rust/fx-core) |
 | — | Phase A baseline | [BASELINE.md](BASELINE.md) |
 | — | Observed wire behavior of the built binary | [evidence/observed-wire.md](evidence/observed-wire.md) |
 | — | Subsystem audits with file:line evidence | [audit/01-inference-path.md](audit/01-inference-path.md), [02-auth-config-hosts](audit/02-auth-config-hosts.md), [03-agent-tools-execution](audit/03-agent-tools-execution.md), [04-embedding-build-ci](audit/04-embedding-build-ci.md), [05-product-shell](audit/05-product-shell.md) |
@@ -37,7 +49,7 @@ Audited commit: `255c6cf125034baad48c99bd618783d63dab7df1` ([BASELINE.md](BASELI
    - an Executor (which also absorbs diagnostics)
    - Runtime Adapters
 
-   See [ARCHITECTURE.md](ARCHITECTURE.md) §4.
+   They are implemented in Rust (`rust/fx-core`); the contract exists as of R1. See [ARCHITECTURE.md](ARCHITECTURE.md) §4.
 
 ## Method
 
@@ -93,7 +105,7 @@ Reproduce the wire evidence: see [evidence/observed-wire.md](evidence/observed-w
 
 | Item | Status | Evidence |
 | --- | --- | --- |
-| Every tracked file in scope is inventoried | Done | `files.tsv`, 784 rows; `--check` reports 0 unclassified and 0 unreviewed files |
+| Every tracked file in scope is inventoried | Done | `files.tsv`, 848 rows (784 audited + R1 files); `--check` reports 0 unclassified and 0 unreviewed files |
 | Every production method and public type is accounted for | Done, with lexical callers | `symbols.tsv`: every declaration has an owner and disposition. Caller evidence is lexical (see Method) |
 | Public APIs, runtime surfaces and external consumers mapped | Done | [BASELINE.md](BASELINE.md) "Public surfaces" and "Consumers"; [audit/04](audit/04-embedding-build-ci.md). No Chip, Easy-LLM, Compute, Attn or PAX consumer exists in this workspace |
 | Vercel and framework coupling traced to source and effects | Done | [VERCEL_TRACE.md](VERCEL_TRACE.md), 39 findings classified |
@@ -104,7 +116,7 @@ Reproduce the wire evidence: see [evidence/observed-wire.md](evidence/observed-w
 | Stream, cancellation, errors, lifecycle and metadata have explicit contracts | Done | §4 state machine and invariants I1-I10, §8 errors, §9 cancellation C1-C7 |
 | Native and WASM requirements grounded in actual capabilities | Done | §7: only remote inference exists today. CPU and accelerated modes are not promised |
 | Chip, Easy-LLM, Compute and Attn boundaries preserved | Done | §5-6; Attn and Compute have no edge into FX |
-| Every retained behavior has a conformance test or a documented gap | Done (tests specified; implementation lands in PR 1-2) | [BEHAVIOR_MATRIX.md](BEHAVIOR_MATRIX.md) §2-3, gaps §7 |
+| Every retained behavior has a conformance test or a documented gap | Done (tests specified; implementation lands in R1-R2) | [BEHAVIOR_MATRIX.md](BEHAVIOR_MATRIX.md) §2-3, gaps §7 |
 | All proposed removals have consumer-impact analysis | Done | [VERCEL_TRACE.md](VERCEL_TRACE.md) §4 |
 | Roadmap has ordered, independently testable PRs | Done | [ROADMAP.md](ROADMAP.md) |
 | Working code, APIs, dependencies and runtime behavior unchanged | Done | Diff touches only `docs/rebuild/` |
@@ -112,7 +124,7 @@ Reproduce the wire evidence: see [evidence/observed-wire.md](evidence/observed-w
 
 Not verified in this environment, and therefore not claimed:
 - E2E (Bun/tmux) and WASM SDK lanes were not run locally. They run in Full CI.
-- Full CI has never run on this fork; PR 1 establishes that baseline (R-11).
+- Full CI has never run on this fork; R1 establishes that baseline (R-11).
 - Live-credential suites were not run.
 
 ## Final review question

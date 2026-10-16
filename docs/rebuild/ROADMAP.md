@@ -1,166 +1,106 @@
 # Implementation roadmap
 
-There are six PRs, in dependency order. Each one can be reviewed, tested and reverted on its own. Every PR follows the repository's existing gates (`AGENTS.md`):
-- `zig fmt --check src/` and focused tests
-- `./zig-out/bin/fx` exercised on the changed path
-- a draft PR
-- **Full CI** green on all four runners at the exact commit
-- the ship gate
+The rebuild uses the R0–R6 sequence from [RUST_PRIMITIVES.md](RUST_PRIMITIVES.md) §12. Rust is the implementation language of the new core (OD-9). The Zig implementation under `src/` remains the behavioral oracle until R5, and it is never a second supported inference core.
 
-The sequence below adjusts the brief's proposal where the audit justified it:
-- PR 1 lands the contract *types*, because the behavior freeze needs something executable to point at.
-- PR 3 also collapses the three inference entry paths.
-- The legacy Gateway capability (OD-7) bridges PR 3 to PR 5.
+Every PR keeps the existing gates intact: `zig fmt --check src/`, `zig build test`, Full CI on the four native runners, the N-API and WASM SDK lanes, and the ship gate described in `AGENTS.md`. From R1 on, the **Rust core** workflow (`.github/workflows/rust-core.yml`) is an additional gate for any change under `rust/` or to `rust-toolchain.toml`.
 
 ```mermaid
 flowchart LR
-  P1["PR 1<br/>Freeze contract<br/>+ baseline"] --> P2["PR 2<br/>Executor core<br/>+ conformance"]
-  P2 --> P3["PR 3<br/>Capability binding<br/>replace seam"]
-  P3 --> P4["PR 4<br/>N-API + WASM<br/>adapters"]
-  P3 --> P5["PR 5<br/>Consumers +<br/>legacy removal"]
-  P4 --> P6["PR 6<br/>Production<br/>readiness"]
-  P5 --> P6
-  OD2(["OD-2 Easy-LLM interface"]) -.-> P3
-  OD7(["OD-7 legacy capability"]) -.-> P3
-  OD3(["OD-3, OD-5"]) -.-> P4
-  OD1(["OD-1 shell fate"]) -.-> P5
-  OD6(["OD-6 naming"]) -.-> P6
+  R0["R0 ✓<br/>Decomposition +<br/>language decision"] --> R1["R1 ✓ (this PR)<br/>Contract crate"]
+  R1 --> R2["R2<br/>Executor +<br/>fake capability"]
+  R2 --> R3["R3<br/>Easy-LLM<br/>capability"]
+  R2 --> R4["R4<br/>Node + WASM<br/>adapters"]
+  R3 --> R5["R5<br/>Consumer migration +<br/>legacy removal"]
+  R4 --> R5
+  R5 --> R6["R6<br/>Production<br/>readiness"]
+  OD2(["OD-2 Easy-LLM single-attempt API"]) -.-> R3
+  OD7(["OD-7 legacy Gateway capability"]) -.-> R5
+  OD3(["OD-3, OD-5"]) -.-> R4
+  OD1(["OD-1 shell fate"]) -.-> R5
+  OD6(["OD-6 naming"]) -.-> R6
 ```
 
-## PR 1: Freeze the behavioral contract
+## R0: Decomposition and language decision (done)
+
+**Delivered by:** the merged decomposition PRs (`docs/rebuild/`: audits, inventories, capability ledger, behavior matrix, Vercel trace, risks, decisions), `RUST_PRIMITIVES.md`, and the language decision recorded in this PR (OD-9).
+
+**Exit:** one normative design. Architecture, roadmap, README, decisions and risks agree that Rust is normative and Zig is the oracle.
+
+## R1: Contract crate (this PR)
 
 **Scope**
-- This decomposition (docs and inventory tooling). It is the current PR.
-- Add `src/fx/contract.zig` and `src/fx/contract_json.zig`: the types, events, errors and `Capability` interface from [ARCHITECTURE.md](ARCHITECTURE.md) §4 A. Include JSON round-trip tests. There is no executor yet and no caller in the product.
-- Add `src/fx/testing/fixtures/`: translate the stream scripts in `client.zig` tests and `gateway-stream-lifecycle.test.ts` into contract-event fixtures, each with the expected outcome from [BEHAVIOR_MATRIX.md](BEHAVIOR_MATRIX.md).
-- Add an import-boundary check: a script plus a CI step. It fails if `src/fx/**` imports anything outside `src/fx/` and `src/core/shared/io.zig`.
-- Add an invariant-coverage check: every I-, C-, BM- and A- identifier in the docs must name at least one test.
-- Run Full CI on the frozen commit and record the authoritative pass/fail set (R-11).
+- `rust-toolchain.toml` (pinned 1.97.0) and `rust/fx-core/` (`Cargo.toml`, `Cargo.lock`, `src/{lib,contract,validate,wire,json_check,base64,redact}.rs`).
+- Contract types, the single `Limits` table, deterministic request validation, event bound checks, and versioned strict JSON encoding for requests, events, outcomes and capability errors.
+- Deterministic tests: `tests/contract_roundtrip.rs`, `tests/contract_validation.rs`, and `tests/contract_fixtures.rs` with 45 fixtures under `tests/fixtures/contract/`.
+- Gates: `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D warnings`, `cargo test --locked`, native and `wasm32-unknown-unknown` release builds, and `check-boundaries.sh` (dependency allowlist, forbidden crates, exact pins, forbidden source patterns). These run on Linux and macOS in `rust-core.yml`.
 
-**Dependencies:** none.
+**Not in scope:** executor, capability trait, Easy-LLM, N-API/WASM ABI, product callers, Gateway deletion, npm changes.
 
-**Acceptance**
-- The contract compiles under `zig build test` and is not imported by product code.
-- The fixture corpus parses.
-- The boundary check passes.
-- `python3 docs/rebuild/tools/generate_inventory.py --check` passes.
+**Exit:** the contract is executable, validated, versioned and bounded. Every R1 behavior maps to a named test (BEHAVIOR_MATRIX §8). Invalid and oversized requests are rejected before any capability could be invoked.
 
-**Exit gate**
-- Every current public capability has a disposition (already true: zero unclassified files).
-- Retained behavior has a testable contract: types plus fixtures with expected outcomes.
-
-**Rollback:** delete `src/fx/` and the docs. No product behavior changes.
-
-## PR 2: Implement the minimal inference core
+## R2: Executor and fake capability
 
 **Scope**
-- `src/fx/executor.zig`, `normalizer.zig`, `diagnostics.zig` and the fake capability. These implement the validation, the state machine (I1-I10), the cancellation guarantees (C1-C7), `Limits`, `admitProposals` and `Diagnostics`.
-- Port the normalizer test groups of `client.zig` ([BEHAVIOR_MATRIX.md](BEHAVIOR_MATRIX.md) §4).
-- Port all adversarial cases A-1 to A-13.
-- Run an allocation-failure sweep.
-- Add an executor micro-benchmark measuring events/s and per-event overhead.
-- Remove the duplicate `BuildBudget`, the duplicate `StructuredResponseFormat`, and the dead `postGatewayCompletion`/`parseGatewayCompletion`.
+- `capability.rs`: the non-blocking `Capability` trait (`start`, bounded `poll`, `cancel`, `close`) from RUST_PRIMITIVES §6.
+- `executor.rs`, `normalize.rs`, `diagnostics.rs`: the one-attempt state machine, invariants I1–I10, cancellation guarantees C1–C7, bounded buffers and accumulation, and redacted diagnostics.
+- A deterministic fake capability and executor fixtures in the same format as the R1 fixtures.
+- Port BM-01 to BM-11, BM-15, BM-17 and A-1 to A-13. Port the normalizer test groups of `src/gateway/client.zig` (BEHAVIOR_MATRIX §4).
+- Resource-teardown tests on every terminal path; concurrency isolation; throughput micro-benchmark.
+- Oracle parity: replay the R2 fixtures through the Zig oracle's normalizer (a test-only harness against `consumeSseStream`) and diff outcomes. Record differences as intentional (with a decision reference) or fix them.
 
-**Dependencies:** PR 1. OD-8 resolved.
+**Dependencies:** R1. OD-8 (malformed-event policy) is already resolved.
 
-**Acceptance**
-- BM-01 to BM-11, BM-15 and BM-17 pass against the fake capability.
-- No Vercel string, credential type, HTTP type or `std.http` import exists in `src/fx`: checked with `rg -n 'vercel|gateway|std\.http' src/fx`, which must be empty.
+**Exit:** deterministic native conformance with no network, credentials or provider dependency.
 
-**Exit gate:** core execution passes its deterministic suite with no Vercel package or service, and with nothing but the standard library.
-
-**Rollback:** revert the PR. Nothing in the product calls `src/fx` yet.
-
-## PR 3: Bind FX to the inference capability and replace the old seam
+## R3: Easy-LLM capability
 
 **Scope**
-- `gateway_step.streamGatewayCompletion` becomes a thin call to `fx.execute`. The usage-ledger begin/complete/fail stays in consumer code around it.
-- The agent loop builds `fx.Request` instead of `BuildRequest` plus opaque payload bytes.
-- The **web-search worker**, **permission reviewer** and **vision tool** move onto `fx.execute` with structured output, collapsing the three entry paths into one.
-- `stream_provider.Provider`, `BuildFn`, `StreamFn` and `ProviderAttemptOwner` (both copies) are deleted in the same PR.
-- The existing Gateway client is wrapped as `src/shell/legacy_gateway_capability.zig` (OD-7). It is consumer-owned, implements `Capability`, and keeps today's transport retries inside the capability. Two fixes land there: the bearer is zeroed and the error body is capped (R-12).
-- Alternatively, if OD-2 has resolved, Easy-LLM's capability is wired here instead and the legacy wrapper is skipped.
-- `model_response_recovery` stays in consumer code (destined for Chip) and is fed from `fx.Failure`.
-- Investigate and fix the possible `image_provider` leak.
+- In `rkendel1/llm`, add a lower-level **single-attempt** API. It must expose the events and terminal semantics FX needs without invoking model fallback or duplicating routing policy. FX does not call the high-level `llm()` function.
+- In this repository, add an explicit adapter that implements `fx_core::Capability` over that API. It is a separate crate or feature, so `fx-core`'s dependency allowlist does not grow.
+- Collapse the three inference entry paths (agent loop, web-search worker, permission reviewer) onto the executor. Consumer policy stays with its owners.
+- If the shell must keep working before Easy-LLM is ready, the legacy Gateway path becomes a consumer-owned capability outside the core, with a fixed deletion PR (OD-7).
 
-**Dependencies:** PR 2. OD-2 or OD-7.
+**Dependencies:** R2, OD-2.
 
-**Acceptance**
-- `fx ask --json` against [tools/fake_gateway.py](tools/fake_gateway.py) produces byte-identical stdout for the plain and tool scenarios in [evidence/observed-wire.md](evidence/observed-wire.md), and the same request bodies.
-- E2E `gateway-stream-lifecycle`, `tui-gateway-stream-lifecycle`, `session-recovery`, `vision-route-fake-gateway`, `web-search-fake-gateway` and `tui-interrupt-recovery` pass unchanged.
-- The `gateway_flow.zig` suite passes with the seam replaced.
-- BM-06, BM-08 (now through the real consumer) and BM-13 pass.
-- `rg -n 'stream_provider\.' src` is empty.
+**Exit:** no compile-time provider choice and no provider implementation inside the FX core.
 
-**Exit gate:** FX executes through an explicitly passed capability. There is no compile-time provider choice in FX and no competing provider authority in FX.
-
-**Rollback:** revert. The old seam and its tests come back intact because they are deleted in this same PR.
-
-## PR 4: Rebuild the supported runtime surfaces
+## R4: Node and WASM adapters
 
 **Scope**
-- `src/fx/napi.zig`: `libfxApiVersion = 3`, with the inference API from ARCHITECTURE §4 C. The capability source follows OD-3, host-provided first. A threadsafe function replaces 2 ms polling. Handles, the slot cap and the `LIBFX_*` codes are retained. The ACP byte pipes and the native HTTP in the addon are removed.
-- `src/fx/wasm.zig`: a reactor module per OD-5. It has no WASI, no JSPI and no session/config/OAuth/workspace/terminal imports.
-- `libfx` major version with the inference-level JS API: `createInference({capability})`, `execute(request, {signal})` returning an async iterator of events plus the outcome.
-- The ACP agent API (`createFxAgent`) moves to the consumer package (Chip or shell per OD-1). The browser terminal moves with the shell. The Vercel demo packaging (`vercel.json`) is removed.
-- Port the N-API scripts (misuse, workers, worker-termination, cancel, fetch-failure, config-isolation).
+- N-API: `createInference`/`execute`, host-provided capability first (OD-3), thread-safe notification instead of 2 ms polling, type-tagged handles, slot cap, exactly-once destroy, stable `LIBFX_*` errors.
+- WASM: a `wasm32-unknown-unknown` reactor ABI with no WASI and no JSPI (OD-5), an import allowlist check, and ABI fuzzing.
+- Reuse the R1 and R2 fixtures. Require identical normalized outcomes across native, N-API and WASM (BM-12, BM-14, BM-16).
+- A new `libfx` major version. The ACP agent API moves to the consumer package (R-1).
 
-**Dependencies:** PR 3. OD-3 and OD-5.
+**Dependencies:** R2 (R3 is not required: adapters run against the fake and host capabilities).
 
-**Acceptance**
-- BM-12, BM-14 and BM-16 pass. Every fixture produces identical outcome JSON on native, N-API and WASM.
-- The WASM import allowlist check passes.
-- No CLI spawn exists on any surface.
+**Exit:** equivalent outcomes for every applicable fixture on every runtime.
 
-**Exit gate:** every retained runtime surface passes the same conformance suite.
-
-**Rollback:** revert. The old `libfx` stays published on its own dist-tag.
-
-## PR 5: Migrate consumers and remove legacy baggage
+## R5: Consumer migration and legacy removal
 
 **Scope**
-- Replace `legacy_gateway_capability` with the Easy-LLM capability.
-- Delete `src/gateway/*`, `src/core/gateway/*` (except what already moved into `src/fx`), and `src/core/auth/*` (except `secret.zig`). Also remove: the model catalog cache, credits, `/v1/generation` reconciliation, devbox, `BackendKind.vercel`/`just_bash`, Vercel login/teams/branded copy, and `fx login/logout/setup/teams/credits` (delegated to Easy-LLM or dropped per OD-1).
-- Remove the matching E2E files and PGSO corpus entries in the same PR (R-14).
-- Shell configuration: `model`, `effort` and `fast_mode` become caller choices passed into `fx.Request`. Model capability lookups go to Easy-LLM.
-- Session migration plan executed by the session owner (R-7).
-- Verify that nothing in `src/core/execution`, `src/core/terminal`, `src/core/background` (Compute) or permission-policy code (Attn) imports `src/fx` internals or provider code.
+- Migrate the Zig consumers (agent loop, `fx ask`, ACP, vision, web search, permission reviewer) to the Rust executor through the boundary chosen in R4. Then remove `stream_provider.Provider` and `ProviderAttemptOwner`.
+- Move recovery policy to Chip, provider concerns to Easy-LLM, and process/sandbox concerns to Compute, per [CAPABILITIES.md](CAPABILITIES.md).
+- Execute the removal ledger ([VERCEL_TRACE.md](VERCEL_TRACE.md) §4). Update the PGSO corpus with each E2E move or removal (R-14).
+- Do this only after parity is demonstrated: E2E `gateway-stream-lifecycle`, `tui-gateway-stream-lifecycle`, `session-recovery`, `vision-route-fake-gateway`, `web-search-fake-gateway` and `tui-interrupt-recovery` pass unchanged against the new path, and `fx ask --json` against `tools/fake_gateway.py` produces byte-identical output.
 
-**Dependencies:** PR 3. OD-1, OD-2.
+**Dependencies:** R3, R4, OD-1, OD-7.
 
-**Acceptance**
-- `rg -n -i 'ai-gateway|vercel|AI_GATEWAY_API_KEY|VERCEL_OIDC_TOKEN|x-vercel|blob\.vercel' src sdk tests scripts .github` returns only `LICENSE`-adjacent legal text and documented historical CHANGELOG entries.
-- All remaining E2E files pass.
-- The removal ledger rows in [VERCEL_TRACE.md](VERCEL_TRACE.md) §4 are all checked off.
+**Exit:** no duplicate seam, no unowned behavior, no unexplained deleted test.
 
-**Exit gate:** all known consumers work through the intended boundaries, and repository searches confirm the unwanted code paths are gone.
-
-**Rollback:** revert per removed area. Each removal is a separate commit inside the PR.
-
-## PR 6: Production readiness and release
+## R6: Production readiness
 
 **Scope**
-- Workflows: drop the Blob, CDN, deploy-hook and AI-Gateway changelog steps, the live-key CI job and the credential blanking. Keep the four-runner Full CI. Retarget binary-size at `libfx.node` and `fx-core.wasm`. Add the executor benchmark to `bench.yml`.
-- Docs: `README.md`, `CONTRIBUTING.md`, `AGENTS.md`, `sdk/README.md`, `sdk/NAPI.md` describe deployment modes, supported runtimes, limitations and troubleshooting. Fix the `AGENTS.md` benchmark-upload drift (V-37).
-- Release: reproducible packaging through `sdk/scripts/package-libfx.mjs`, which is currently duplicated inline in `publish-libfx.yml`. Package naming per OD-6. The CHANGELOG documents the intentional breaking release.
-- Final checks:
-  - cancellation, resource cleanup and concurrency under `ReleaseSafe` on all runners
-  - a `zig build test` leak check
-  - `generate_inventory.py --check` on the final tree with an updated rule set
+- Full CI and Rust core CI on every supported runner, recorded at the exact commit.
+- ABI/API compatibility notes and migration documentation.
+- Benchmarks: startup, memory, event throughput, cancellation latency, binary and WASM size.
+- Licenses and notices, including the Rust dependency licenses.
+- Release workflow changes from the removal ledger (no Vercel Blob, CDN deploy hook or AI-Gateway changelog drafting).
 
-**Dependencies:** PR 4, PR 5. OD-6.
+**Dependencies:** R5, OD-6.
 
-**Acceptance and exit gate**
-- Release evidence shows the new implementation satisfies its published contracts on all four native runners and both embedding surfaces.
-- No hidden dependency on Vercel infrastructure remains in build, test, release or runtime paths.
+**Exit:** all conformance, performance, security and release gates are green.
 
-## Mapping of brief milestones to this roadmap
+## Superseded numbering
 
-| Brief | This roadmap | Difference |
-| --- | --- | --- |
-| PR 1 freeze contract | PR 1 | Adds executable contract types, the fixture corpus and the authoritative Full CI baseline |
-| PR 2 minimal core | PR 2 | Adds dead-code and duplicate removal inside the inference path |
-| PR 3 bind to Easy-LLM | PR 3 | Also replaces the old seam and collapses the three entry paths. Allows a consumer-owned legacy capability if Easy-LLM is not ready (OD-7) |
-| PR 4 runtime surfaces | PR 4 | Reactor WASM without JSPI. Host-provided capability first for N-API |
-| PR 5 migrate consumers | PR 5 | Consumers stay in-repo behind an import boundary until Chip takes them (OD-1) |
-| PR 6 production readiness | PR 6 | unchanged |
+The earlier plan numbered six Zig PRs ("PR 1" to "PR 6", with a Zig module at `src/fx/`). That numbering is superseded by R0–R6. The mapping is: PR 1 → R0 + R1, PR 2 → R2, PR 3 → R3, PR 4 → R4, PR 5 → R5, PR 6 → R6. The Zig `src/fx/` module will not be created.
