@@ -1,6 +1,7 @@
 path	kind	lines	production_decls	tests	test_local_decls	capability	owner	disposition	rule_prefix	review	purpose	key_public_decls
 .github/ISSUE_TEMPLATE/fx-report.yml	ci	34	0	0	0	OPS-REPO	repo	KEEP	.github/ISSUE_TEMPLATE/	audit/04-embedding-build-ci.md	issue intake form	
 .github/actions/setup-pgso/action.yml	ci	84	0	0	0	OPS-PGSO	fx-shell	INVESTIGATE	.github/actions/setup-pgso/	audit/04-embedding-build-ci.md	PGSO toolchain for the 7.8 MiB fx binary; only relevant if the shell binary survives	
+.github/workflows/agent-parity.yml	ci	106	0	0	0	OPS-CI	repo	KEEP	.github/workflows/agent-parity.yml	audit/04-embedding-build-ci.md	agent-loop parity: the same scenarios through the Zig loop and Rust Chip, compared with the committed evidence	
 .github/workflows/bench.yml	ci	46	0	0	0	OPS-BENCH	fx-shell	REBUILD	.github/workflows/bench.yml	audit/04-embedding-build-ci.md	startup budgets measure the CLI; Vercel Blob upload is removed	
 .github/workflows/binary-size.yml	ci	169	0	0	0	OPS-SIZE	repo	KEEP	.github/workflows/binary-size.yml	audit/04-embedding-build-ci.md	retarget at FX core artifacts	
 .github/workflows/cdn-backfill.yml	ci	162	0	0	0	OPS-RELEASE	repo	REMOVE	.github/workflows/cdn-backfill.yml	audit/04-embedding-build-ci.md	backfills Vercel-hosted CDN/Blob release assets	

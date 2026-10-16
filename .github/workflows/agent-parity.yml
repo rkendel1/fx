@@ -1,0 +1,106 @@
+name: Agent-loop parity
+
+# Runs the versioned scenario corpus (docs/rebuild/parity/agent-loop.v1.json) against the real Zig
+# `fx ask` loop and Rust Chip, then requires the result to agree with the committed
+# docs/rebuild/evidence/agent-parity.json (scenarios and gate; binary hashes are ignored). No
+# credentials and no network model: both sides talk to scripted loopback endpoints.
+#
+# This is evidence for the Zig agent-loop retirement gate, not the gate itself: the committed result
+# says `retirement_ready: false` until every difference is approved and every unsupported behavior
+# is closed (see docs/rebuild/parity/README.md).
+#
+# CHIP_RS_REF is a full commit SHA merged into chip-rs main, never a branch or tag name.
+
+on:
+  push:
+    paths:
+      - "docs/rebuild/parity/**"
+      - "docs/rebuild/evidence/agent-parity.json"
+      - "docs/rebuild/tools/scripted_gateway.py"
+      - "src/core/agent/**"
+      - ".github/workflows/agent-parity.yml"
+  pull_request:
+    paths:
+      - "docs/rebuild/parity/**"
+      - "docs/rebuild/evidence/agent-parity.json"
+      - "docs/rebuild/tools/scripted_gateway.py"
+      - "src/core/agent/**"
+      - ".github/workflows/agent-parity.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: agent-parity-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Merge of rkendel1/chip-rs#33: every model-calling command on the fx executor.
+  CHIP_RS_REF: 17a261ada6d89d887e29a52a07eec573baee255f
+
+jobs:
+  harness:
+    name: Harness self-tests and stored result
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -I docs/rebuild/parity/test_agent_parity.py
+      - run: python3 docs/rebuild/parity/agent_parity.py check
+
+  parity:
+    name: Zig loop and Rust Chip, same scenarios
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: rkendel1/chip-rs
+          ref: ${{ env.CHIP_RS_REF }}
+          path: chip-rs
+          fetch-depth: 1
+
+      - name: Check the pin
+        working-directory: chip-rs
+        run: |
+          case "$CHIP_RS_REF" in
+            *[!0-9a-f]*|"") echo "CHIP_RS_REF must be a lowercase hex commit SHA" >&2; exit 1 ;;
+          esac
+          test "${#CHIP_RS_REF}" -eq 40 || { echo "CHIP_RS_REF must be a full 40 character SHA" >&2; exit 1; }
+          test "$(git rev-parse HEAD)" = "$CHIP_RS_REF" || { echo "checked out $(git rev-parse HEAD), not the pin" >&2; exit 1; }
+          git fetch --no-tags --filter=blob:none origin main
+          git merge-base --is-ancestor "$CHIP_RS_REF" FETCH_HEAD || { echo "$CHIP_RS_REF is not merged into chip-rs main" >&2; exit 1; }
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: "0.16.0"
+
+      - name: Build the Zig binary
+        run: zig build -Doptimize=ReleaseSafe
+
+      - name: Build Rust Chip and its drivers
+        working-directory: chip-rs
+        run: cargo build --locked -p chip-cli --bin chip -p chip-session --example session_tool -p chip-turns --example turn_tool
+
+      - name: Run the corpus against both
+        run: |
+          python3 docs/rebuild/parity/agent_parity.py run \
+            --fx-bin ./zig-out/bin/fx \
+            --chip-bin chip-rs/target/debug/chip \
+            --turn-tool chip-rs/target/debug/examples/turn_tool \
+            --session-tool chip-rs/target/debug/examples/session_tool \
+            --chip-rs-ref "$CHIP_RS_REF" \
+            --out "$RUNNER_TEMP/agent-parity.json"
+
+      - name: The result agrees with the committed evidence
+        run: python3 docs/rebuild/parity/agent_parity.py diff docs/rebuild/evidence/agent-parity.json "$RUNNER_TEMP/agent-parity.json"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: agent-parity
+          path: ${{ runner.temp }}/agent-parity.json

@@ -28,7 +28,8 @@
         "provider-native tool-call loop not ported (Chip uses text decisions)",
         "silent-tool continuation not ported",
         "step-limit pause semantics not ported",
-        "no parity run of turn, tool, cancellation and recovery against the Zig loop"
+        "agent-parity.json: 2 crash-recovery differences are deliberately unapproved and 10 unsupported behaviors are open, by release-impact category (see docs/rebuild/parity/README.md)",
+        "the parity evidence must be reproduced by the agent-parity workflow with a freshly built Zig binary (the committed result used a prebuilt 0.0.4 binary)"
       ]
     },
     {
@@ -71,5 +72,11 @@
       "build.zig",
       "libfx"
     ]
+  },
+  "agent_parity": {
+    "corpus": "docs/rebuild/parity/agent-loop.v1.json",
+    "results": "docs/rebuild/evidence/agent-parity.json",
+    "runner": "docs/rebuild/parity/agent_parity.py",
+    "note": "The zig-agent-loop entry may leave `blocked` only when the stored result says retirement_ready: true. The checker validates the stored result against the corpus; it never redefines what must match."
   }
 }
