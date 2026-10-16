@@ -11,29 +11,65 @@
   "blocked": [
     {
       "id": "chip-legacy-http",
-      "what": "chip-legacy-http (reqwest executor) in rkendel1/chip-rs",
-      "blockers": ["the native chip binary (chip-cli) has no Easy-LLM host; moving it needs a product decision"],
+      "what": "chip-legacy-http (reqwest executor) in rkendel1/chip-rs: now an explicit `--executor legacy` option only; fx is the default",
+      "blockers": [
+        "HttpProviderConfig / config_from_env still live in chip-legacy-http and must move to chip-cli or chip-inference",
+        "Ollama's own API is served only by the legacy executor (decide: build it natively or drop it)",
+        "tests and mocks still construct the legacy provider (see legacy-http-consumers.txt)",
+        "one OpenRouter live run with captured output and audit is a release gate, not yet done"
+      ],
       "ratchet": "docs/product/legacy-http-consumers.txt in chip-rs may only shrink"
     },
     {
       "id": "zig-agent-loop",
       "what": "Zig fx ask provider tool-call loop and permission modes",
-      "blockers": ["permission modes ask/auto/yolo not ported", "provider-native tool-call loop not ported (Chip uses text decisions)", "silent-tool continuation not ported", "step-limit pause semantics not ported"]
+      "blockers": [
+        "permission modes ask/auto/yolo not ported",
+        "provider-native tool-call loop not ported (Chip uses text decisions)",
+        "silent-tool continuation not ported",
+        "step-limit pause semantics not ported",
+        "no parity run of turn, tool, cancellation and recovery against the Zig loop"
+      ]
     },
     {
       "id": "zig-persistence",
       "what": "Zig session store and event-log format",
-      "blockers": ["persistence stays Zig-owned; Chip does not duplicate it", "interrupted-turn persistence not ported"]
+      "blockers": [
+        "interrupted-turn persistence not ported in the Zig-compatible format end to end (chip-session/chip-turns write the format; cross-implementation CI covers resume only)",
+        "Zig remains the only writer for sessions started by Zig surfaces"
+      ]
     },
     {
       "id": "zig-surfaces",
-      "what": "TUI, ACP and SDK surfaces",
-      "blockers": ["no Rust equivalent exists"]
+      "what": "TUI, ACP, gateway, MCP, SDK (N-API/WASM) surfaces and the tool/builtin layer",
+      "blockers": [
+        "no Rust TUI (src/ui, ~129k lines)",
+        "no Rust ACP server (src/acp)",
+        "no Rust gateway or MCP client/server (src/gateway, src/core/mcp)",
+        "tools and builtins (src/tools, src/builtins) are not ported",
+        "SDK N-API/WASM entry points (napi_core_main.zig, wasm_core_main.zig) still build the shipped SDK",
+        "see docs/rebuild/ZIG_RETIREMENT.md for the order"
+      ]
     }
   ],
-  "fx_must_not_depend_on": ["chip-core", "chip-inference", "chip-fx", "chip-wasm-host", "chip-legacy-http"],
+  "fx_must_not_depend_on": [
+    "chip-core",
+    "chip-inference",
+    "chip-fx",
+    "chip-wasm-host",
+    "chip-legacy-http"
+  ],
   "single_executor": {
     "crate": "rust/fx-core",
     "note": "No other crate under rust/ may define an execute entry point or an HTTP client"
+  },
+  "zig_free_rust": {
+    "note": "Rust code under rust/ may not build, link or load Zig outputs",
+    "forbidden_in_manifests": "zig",
+    "forbidden_in_sources": [
+      "zig-out",
+      "build.zig",
+      "libfx"
+    ]
   }
 }
