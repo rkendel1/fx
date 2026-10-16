@@ -37,8 +37,8 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  # Merge of rkendel1/chip-rs#33: every model-calling command on the fx executor.
-  CHIP_RS_REF: 17a261ada6d89d887e29a52a07eec573baee255f
+  # Merge of rkendel1/chip-rs#37: FX is the only executor; the release notices the parity gate requires.
+  CHIP_RS_REF: 747f991e2ff4168ffdfe021d871ad74d1b973bee
 
 jobs:
   harness:
