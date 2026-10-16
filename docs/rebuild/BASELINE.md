@@ -99,7 +99,7 @@ None is in the inference path. All are in subsystems whose behavior depends on p
 | `history page maps missing unsafe unavailable unsupported and corrupt sessions distinctly` | `core/session/session_store.zig` | root bypasses permissions |
 | `timeout terminates foreground process group descendants` and four `natural command completion ... / cancellation preserves grace ...` tests | `core/permissions/sandbox.zig` | process-group and subreaper behavior in the container |
 
-These are recorded as **pre-existing environment-specific failures**, not regressions, and are not waived: PR 1 of the roadmap re-establishes the baseline on Full CI runners before any behavior is frozen ([ROADMAP.md](ROADMAP.md)).
+These are recorded as **pre-existing environment-specific failures**, not regressions, and are not waived: R1 of the roadmap re-establishes the baseline on Full CI runners before any behavior is frozen ([ROADMAP.md](ROADMAP.md)).
 
 ### Baseline performance contracts already in the repository
 

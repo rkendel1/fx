@@ -10,26 +10,26 @@ Test status legend: **P** observed passing locally at `255c6cf`; **F** observed 
 
 | ID | Capability | Value to consumers | Current owner → target | Disposition | Replacement / receiving owner | Acceptance evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| `INF-CONTRACT` | Provider-neutral request, message, part, completion and finish vocabulary | Lets any caller describe one inference and read its result | FX (spread over `types.zig`, `message.zig`, `stream_provider.zig`) → FX | REBUILD | `fx.contract` (ARCHITECTURE §4 A) | Contract unit tests; JSON round-trip; BM-01..BM-05 |
-| `INF-SEAM` | The provider seam `stream_provider.Provider` | Decouples the agent loop from transport | FX → FX | REBUILD | `fx.contract.Capability`; old type deleted in PR 3 | No remaining reference to `stream_provider` (`rg`) |
-| `INF-WIRE` | Request encoding to AI SDK v3 and history validation | Valid provider requests | FX → split | REBUILD | Validation in `fx.executor`; encoding in Easy-LLM | BM-07, BM-17; Easy-LLM smoke |
-| `INF-STREAM` | Incremental stream decoding and normalization (text, reasoning, tool input, tool calls, provider results, finish) | Live output and authoritative proposals | FX → split | REBUILD | Normalizer in `fx.executor`; SSE decoding in Easy-LLM | BM-02, BM-04, BM-10, adversarial A-1..A-8 |
-| `INF-EXEC` | One attempt: build, send, stream, classify; bounded execution with deadline | Single reliable inference call | FX (`gateway_step.zig`, `runBoundedHttpOperation`) → FX | REBUILD | `fx.executor.execute` | BM-01, BM-08, BM-11 |
-| `INF-ERR` | Failure classification, delivery certainty, network evidence, diagnostics | Safe retry decisions by the caller | FX → FX | REBUILD | `fx.contract.Failure`, `ErrorKind`, `DeliveryCertainty` | BM-06, BM-08 |
+| `INF-CONTRACT` | Provider-neutral request, message, part, completion and finish vocabulary | Lets any caller describe one inference and read its result | FX (spread over `types.zig`, `message.zig`, `stream_provider.zig`) → FX | REBUILD | `fx_core` contract (`rust/fx-core`, implemented in R1; ARCHITECTURE §4 A) | R1 test map, BEHAVIOR_MATRIX §8 (`cargo test --locked`) |
+| `INF-SEAM` | The provider seam `stream_provider.Provider` | Decouples the agent loop from transport | FX → FX | REBUILD | `fx_core::Capability` (R2); old type deleted in R3 | No remaining reference to `stream_provider` (`rg`) |
+| `INF-WIRE` | Request encoding to AI SDK v3 and history validation | Valid provider requests | FX → split | REBUILD | Validation in the Rust executor (R2); encoding in Easy-LLM | BM-07, BM-17; Easy-LLM smoke |
+| `INF-STREAM` | Incremental stream decoding and normalization (text, reasoning, tool input, tool calls, provider results, finish) | Live output and authoritative proposals | FX → split | REBUILD | Normalizer in the Rust executor (R2); SSE decoding in Easy-LLM | BM-02, BM-04, BM-10, adversarial A-1..A-8 |
+| `INF-EXEC` | One attempt: build, send, stream, classify; bounded execution with deadline | Single reliable inference call | FX (`gateway_step.zig`, `runBoundedHttpOperation`) → FX | REBUILD | the Rust executor (R2) | BM-01, BM-08, BM-11 |
+| `INF-ERR` | Failure classification, delivery certainty, network evidence, diagnostics | Safe retry decisions by the caller | FX → FX | REBUILD | `fx_core::Failure`, `ErrorKind`, `DeliveryCertainty` | BM-06, BM-08 |
 | `INF-TOOLS` | Tool definitions in requests; tool-call proposal identity, integrity, provenance and admission | Model can propose tool use without authority | FX → FX | KEEP (types) / REBUILD (shape) | `ToolDefinition`, `ToolCallProposal`, `ProviderToolRecord`, `admitProposals` | BM-04, A-3..A-7 |
 | `INF-CONTENT` | Image content parts in requests | Vision requests | FX/Chip (`images/`) → FX (part type), Chip (loading) | REBUILD | `Part.image` | BM-03 |
 | `INF-OPTIONS` | Generation options: max output tokens, reasoning effort, fast mode, structured output | Caller control over generation | FX + catalog heuristics → FX (fields) / Easy-LLM (mapping and validation) | REBUILD | `GenerationOptions` | BM-03; Easy-LLM rejects unsupported options as `invalid_request` |
 | `INF-USAGE` | Token usage, cost, generation identity | Accounting by the consumer | FX + Vercel `/v1/generation` → FX (per-call facts) / Easy-LLM (reconciliation) | REBUILD / MOVE | `Finish.usage`, `Finish.cost`, `metadata.generation_id` | BM-05 |
 | `INF-BIND` | Composition of the concrete provider (native Gateway, host fetch bridge) | Choosing what executes inference | FX → FX (interface) / Easy-LLM (implementation) | REBUILD | Caller passes a `Capability`; no compile-time provider choice | BM-13 |
-| `OBS-DIAG` | Opt-in tracing with keyless previews; request-shape summaries | Debuggability without leaking content | FX → FX | REBUILD | `fx.executor.Diagnostics` + trace hook | BM-15 |
-| `SHR-UTIL` | Shared helpers (`io.zig`, text, sort, memory) | Building blocks | FX → FX (subset) | KEEP | `src/core/shared` subset listed in audit 05 §2 | Compiles into `src/fx` with no product imports |
+| `OBS-DIAG` | Opt-in tracing with keyless previews; request-shape summaries | Debuggability without leaking content | FX → FX | REBUILD | bounded redacted diagnostics in the Rust executor (R2) | BM-15 |
+| `SHR-UTIL` | Shared helpers (`io.zig`, text, sort, memory) | Building blocks | FX → FX (subset) | KEEP | `src/core/shared` subset listed in audit 05 §2 | Rust core needs none of them; it uses `std` only plus the allowlisted serde crates |
 | `SHR-SECRET` | Secret zeroing (`secret.zeroAndFree`) and keychain service naming | Credential hygiene | FX → FX (zeroing) / Easy-LLM (naming) | KEEP | unchanged | Unit tests |
-| `PRV-GATEWAY` | Vercel AI Gateway HTTP client, endpoints, headers, URL gating | Reaching the one backend | FX → Easy-LLM | MOVE (Vercel constants REMOVE) | Easy-LLM transport | Easy-LLM smoke; `rg ai-gateway.vercel.sh src/fx` empty |
+| `PRV-GATEWAY` | Vercel AI Gateway HTTP client, endpoints, headers, URL gating | Reaching the one backend | FX → Easy-LLM | MOVE (Vercel constants REMOVE) | Easy-LLM transport | Easy-LLM smoke; `rust/fx-core/check-boundaries.sh` forbids HTTP clients and provider crates |
 | `PRV-AUTH` | Credential sources, precedence, Sign in with Vercel, OAuth, keychain, teams | Authenticated access | FX → Easy-LLM | MOVE; Vercel login and teams REMOVE | Easy-LLM credentials | FX contains no credential type |
 | `PRV-CATALOG` | Model catalog, capability heuristics, default model, picker curation | Model choice and limits | FX → Easy-LLM | MOVE | Easy-LLM registry | Chip obtains capabilities from Easy-LLM |
 | `PRV-ACCOUNT` | Credits balance | Account visibility | FX → Easy-LLM or none | REMOVE from FX | Easy-LLM if it wants it | — |
 | `AGT-LOOP` | Agent turn loop, worker queue, step limits, presentation of turns | The coding-agent product | FX → Chip | MOVE | Chip | Chip's own suite; fx shell keeps working through Chip |
-| `AGT-RECOVERY` | Pure retry/continuation policy (`model_response_recovery.decide`) | Robust turns | FX → Chip | MOVE | Chip, fed by `fx.Failure` | Its 9 unit tests move with it |
+| `AGT-RECOVERY` | Pure retry/continuation policy (`model_response_recovery.decide`) | Robust turns | FX → Chip | MOVE | Chip, fed by `fx_core::Failure` | Its 9 unit tests move with it |
 | `AGT-TOOLS` | Tool specs, admission, dispatch, built-in tools, vision tool | Agent capabilities | FX → Chip | MOVE | Chip | Chip's suite |
 | `AGT-PERM` | Permission modes, rules, approvals, model-based auto review | Safety of tool use | FX → Chip / Attn (OD-4) | MOVE | Chip / Attn | Their suites |
 | `AGT-SESSION` | Durable sessions, usage ledgers, prompt history, artifacts | Resume and accounting | FX → Chip | MOVE | Chip | Migration plan R-7 |
@@ -45,8 +45,8 @@ Test status legend: **P** observed passing locally at `255c6cf`; **F** observed 
 | `EXE-SANDBOX` | macOS Seatbelt sandbox and widening heuristics | Containment | FX → Compute | MOVE | Compute | — |
 | `EXE-REMOTE` | Remote command execution contract; Vercel Sandbox client | Remote exec | FX → Compute (contract); Vercel client REMOVE | MOVE / REMOVE | Compute | — |
 | `EXE-WORKSPACE` | Browser host workspace exec contract | Commands in browser hosts | FX → Compute | MOVE | Compute | — |
-| `EMB-NAPI` | Native Node addon: handles, threading, fetch bridge, error codes | Node embedding | FX → FX | REBUILD (ACP pipes REMOVE) | `src/fx/napi.zig` | BM-12, BM-14 |
-| `EMB-WASM` | WASM core module | Browser embedding | FX → FX | REBUILD | reactor `src/fx/wasm.zig` | BM-14, BM-16 |
+| `EMB-NAPI` | Native Node addon: handles, threading, fetch bridge, error codes | Node embedding | FX → FX | REBUILD (ACP pipes REMOVE) | the N-API adapter (R4) | BM-12, BM-14 |
+| `EMB-WASM` | WASM core module | Browser embedding | FX → FX | REBUILD | `wasm32-unknown-unknown` reactor (R4) | BM-14, BM-16 |
 | `EMB-SDK` | npm `libfx` host layer, loader, backend selection | JS embedding | FX → FX (inference API) / Chip (`createFxAgent`) | REBUILD | new `libfx` major version | SDK lanes on the new API |
 | `EMB-ACP` | ACP server and ACP-shaped SDK | Editor integration | FX → Chip | MOVE | Chip | `tests/e2e/acp.test.ts` moves |
 | `EMB-TERM` | Browser terminal (`fx-term.wasm`, xterm adapter, demos) | Hosted TUI | FX → product shell | MOVE (Vercel demo REMOVE) | OD-1 | — |
@@ -83,6 +83,7 @@ Test status legend: **P** observed passing locally at `255c6cf`; **F** observed 
 - **Proposed owner:** FX. **Disposition:** REBUILD.
 - **Replacement:** ARCHITECTURE §4 A. Changes: typed parts instead of `ChatMessage` strings plus side arrays; `ToolChoice` gains `required` and `named`; `ReasoningEffort` becomes opaque `named`; billing becomes opaque `cost`; HTTP status becomes a diagnostic hint.
 - **Acceptance:** every behavior in BM-01..BM-05 expressed with the new types; JSON encoding round-trips every variant; no field refers to a provider, endpoint or credential.
+- **Status (R1):** implemented in `rust/fx-core/src/contract.rs`, `validate.rs` and `wire.rs`; covered by the tests and fixtures listed in BEHAVIOR_MATRIX §8. Gaps that need the executor are listed in §8.3.
 
 ### INF-STREAM
 
@@ -90,7 +91,7 @@ Test status legend: **P** observed passing locally at `255c6cf`; **F** observed 
 - **Observable behavior:** in-order synchronous callbacks for content, reasoning, tool start, tool input; authoritative tool calls; finish returns immediately; partial results on EOF without finish; strict finish vocabulary; tool-call identity reconciliation; provider result correlation.
 - **Consumers:** agent loop, vision tool, web-search worker, permission reviewer, N-API and WASM via `host_stream_provider`.
 - **Tests:** 120 in `client.zig` (P); E2E `gateway-stream-lifecycle.test.ts` (CI), `tui-gateway-stream-lifecycle.test.ts` (CI).
-- **Disposition:** REBUILD. The normalization rules (I1-I9 in ARCHITECTURE §4) move into `fx.executor`'s normalizer and run on typed events from any capability. The AI SDK v3 SSE decoding (event JSON shapes, `providerMetadata.gateway.*`) moves to Easy-LLM's Gateway adapter.
+- **Disposition:** REBUILD. The normalization rules (I1-I9 in ARCHITECTURE §4) move into the Rust executor's normalizer (R2) and run on typed events from any capability. The AI SDK v3 SSE decoding (event JSON shapes, `providerMetadata.gateway.*`) moves to Easy-LLM's Gateway adapter.
 - **Acceptance:** each of the 120 `client.zig` stream tests is either ported to a normalizer test on typed events or explicitly assigned to Easy-LLM's adapter suite in BEHAVIOR_MATRIX §3; none is dropped silently.
 
 ### INF-EXEC
@@ -98,7 +99,7 @@ Test status legend: **P** observed passing locally at `255c6cf`; **F** observed 
 - **Current implementation:** `gateway_step.streamGatewayCompletion` (`gateway_step.zig:27-150`); `runBoundedHttpOperation` (`client.zig:1583-1678`); connection-setup policy and cancel watcher (`client.zig:707-879,1690-1734`).
 - **Observable behavior:** one call per attempt; usage observation begin/complete/fail; deep copy of owned results; bounded variants with absolute deadlines; prompt socket shutdown on cancel; suspend detection.
 - **Tests:** `gateway_step.zig` 4, `client.zig` bounded/cancellation tests (about 40), `gateway_flow.zig` 139 (P).
-- **Disposition:** REBUILD as `fx.executor.execute`. Usage observation moves to Chip. Socket-level cancel watching and suspend detection move to the capability (Easy-LLM transport), because FX no longer owns sockets; the executor keeps deadline enforcement and cancel propagation.
+- **Disposition:** REBUILD as the Rust executor (R2). Usage observation moves to Chip. Socket-level cancel watching and suspend detection move to the capability (Easy-LLM transport), because FX no longer owns sockets; the executor keeps deadline enforcement and cancel propagation.
 - **Acceptance:** BM-08 cancellation matrix and BM-11 concurrency pass against the deterministic fake capability.
 
 ### INF-ERR

@@ -1,6 +1,6 @@
 # Rust primitive plan and design
 
-Status: proposed language decision and implementation design\. This extends the source\-backed audit; it does not silently replace the existing Zig target\. The repository currently implements FX in Zig\. Adopting Rust changes build, FFI, allocation, and portability strategy, so the language choice must be approved before implementation PRs begin\.
+Status: **accepted** (OD\-9 decided: Rust is the implementation language of the rebuilt core; the Zig implementation is the behavioral oracle until R5)\. R1, the contract crate, is implemented in `rust/fx-core`; see [ROADMAP\.md](ROADMAP.md)\. The original framing below is kept for the decision record\.
 
 Related: [README\.md](README.md), [ARCHITECTURE\.md](ARCHITECTURE.md), [BEHAVIOR\_MATRIX\.md](BEHAVIOR_MATRIX.md), [ROADMAP\.md](ROADMAP.md), [DECISIONS\.md](DECISIONS.md), [CAPABILITIES\.md](CAPABILITIES.md)\.
 

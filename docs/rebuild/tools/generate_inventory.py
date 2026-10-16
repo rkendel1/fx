@@ -171,11 +171,13 @@ def file_kind(path: str) -> str:
         return "js"
     if path.endswith(".ts"):
         return "ts"
+    if path.endswith(".rs"):
+        return "rust"
     if path.endswith(".py") or path.endswith(".sh"):
         return "script"
     if path.endswith((".md", ".html")) or path == "LICENSE":
         return "doc"
-    if path.endswith((".json", ".zon", ".yml", ".yaml")) or path == ".gitignore":
+    if path.endswith((".json", ".zon", ".yml", ".yaml", ".toml", ".lock", ".txt")) or path.endswith(".gitignore"):
         return "config"
     return "data"
 
@@ -323,8 +325,10 @@ AUDIT_BY_CAPABILITY = (
 )
 
 
-def review_status(capability: str) -> str:
+def review_status(capability: str, path: str = "") -> str:
     """Names the audit note whose pass covered this file's area."""
+    if path.startswith("rust/") or path == "rust-toolchain.toml" or path.endswith("rust-core.yml"):
+        return "BEHAVIOR_MATRIX.md §8 (R1 contract tests)"
     for prefix, doc in AUDIT_BY_CAPABILITY:
         if capability.startswith(prefix):
             return doc
@@ -381,6 +385,10 @@ def generate() -> dict[str, str]:
                 r"^\s*(?:test|it|[a-z]\w*Test)(?:\.\w+(?:\((?:[^()]|\([^()]*\))*\))?)*\(\s*[\"'`]", text, re.M))
             if not tests and pathlib.PurePosixPath(path).name.startswith("test-"):
                 tests = 1  # standalone scenario script: one pass/fail result per file
+        elif text is not None and path.endswith(".rs"):
+            # The Rust core is new code, inventoried by its own test map
+            # (BEHAVIOR_MATRIX.md §8); only its tests are counted here.
+            tests = len(re.findall(r"^\s*#\[test\]", text, re.M))
         elif text is not None and path.endswith(".py"):
             tests = len(re.findall(r"^\s*def test_\w+", text, re.M))
         test_counts[path] = tests
@@ -400,7 +408,7 @@ def generate() -> dict[str, str]:
             rule.owner if rule else "UNCLASSIFIED",
             rule.disposition if rule else "UNCLASSIFIED",
             rule.prefix if rule else "",
-            review_status(rule.capability if rule else ""),
+            review_status(rule.capability if rule else "", path),
             purpose,
             ",".join(key_decls.split(",")[:6]),
         ])

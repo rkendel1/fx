@@ -17,7 +17,7 @@ Canonical architecture document for the FX rebuild. It describes what exists at 
 | Broken or inconsistent | host stream provider lacks tool-input streaming, retry-after and network evidence; native error body read without a cap; `c_allocator` scratch in request encoding; bearer header not zeroed; N-API does native HTTP despite `NAPI.md`; `session/remove` missing on native; WASM advertises `resume`/`close` it does not implement |
 | Obsolete | `postGatewayCompletion`, `parseGatewayCompletion` (OpenAI shape), test-only `fetchModelIds*`/`fetchPickerModel*`, `HistoryTurn.compacted_summary` with no producer, retired `vercel`/`just_bash` sandbox backends |
 
-**3. The smallest coherent set of primitives** is three, not six: an **Inference Contract** (types, events, errors and the stream state machine, with the capability interface it is executed against), an **Inference Executor** (one attempt: validate, invoke, normalize, account, cancel), and **Runtime Adapters** (N-API and WASM). Stream/lifecycle semantics are part of the contract; observability is a hook on the executor; the capability binding is an interface in the contract implemented by Easy-LLM. §4 explains each merge.
+**3. The smallest coherent set of primitives** is three, not six, implemented in Rust (`rust/fx-core`, OD-9): an **Inference Contract** (types, events, errors and the stream state machine, with the capability interface it is executed against), an **Inference Executor** (one attempt: validate, invoke, normalize, account, cancel), and **Runtime Adapters** (N-API and WASM). Stream/lifecycle semantics are part of the contract; observability is a hook on the executor; the capability binding is an interface in the contract implemented by Easy-LLM. §4 explains each merge.
 
 **4. What belongs inside, what stays outside:** §5 (ownership table) and the non-responsibility list of each primitive.
 
@@ -75,7 +75,7 @@ Facts the diagram encodes, each with evidence:
 
 ## 3. Design constraints carried from the audit
 
-1. **Do not create a parallel interface.** `stream_provider.Provider` is replaced in place: the PR that introduces the new capability interface also migrates its single caller and deletes the old type ([ROADMAP.md](ROADMAP.md), PR 3).
+1. **Do not create a parallel supported interface.** The Rust `fx_core::Capability` (R2) is the only capability interface new code may target. The Zig `stream_provider.Provider` is frozen as part of the behavioral oracle: no new consumer may adopt it, and it is deleted in R5 together with the migration of its single caller ([ROADMAP.md](ROADMAP.md)).
 2. **No provider logic in FX.** Endpoints, headers, model naming, capabilities, options mapping, credentials, catalog, billing and routing all leave FX. FX treats the model reference, generation id and cost as opaque values reported by Easy-LLM.
 3. **No retry in FX.** Today retries live in two layers (`ProviderAttemptOwner`). In the target, FX performs exactly one attempt and reports evidence (delivery certainty, error kind, retry-after). Connection-level reattempts while a request is still definitely unsent are a transport concern of Easy-LLM; turn-level recovery is Chip policy (the existing pure `model_response_recovery.decide` moves to Chip unchanged).
 4. **Proposals are not execution.** The contract distinguishes `ToolCallProposal` (the model asks) from `ProviderToolRecord` (the provider reports it ran a provider-side tool). FX never executes anything.
@@ -95,313 +95,134 @@ The brief proposed six primitives. The audit supports three:
 | 6 Observability and Evidence | **Merged into B** as a diagnostic hook | The minimum facts (correlation id, timing, terminal cause, usage, reported model) are already produced by B. Persistence belongs to the consumer or PAX. |
 | 4 Runtime Adapters | **Keep** as primitive C | Only N-API and WASM exist today; no C ABI is added. |
 
-Physical layout proposal: one Zig module `fx` rooted at `src/fx/root.zig` with `contract.zig`, `executor.zig`, `normalizer.zig` and `diagnostics.zig`, plus `src/fx/napi.zig` and `src/fx/wasm.zig` as separate build roots. The module imports only `std` and `src/core/shared/io.zig`.
+### Implementation language: Rust (OD-9, decided)
 
-### Primitive A: Inference Contract (`src/fx/contract.zig`)
+Rust is the implementation language of the rebuilt core. The crate `rust/fx-core` is the **normative** implementation of the contract; the Zig code under `src/` is the **behavioral oracle** during migration and is not a second supported inference core. There is exactly one contract and, from R2 on, exactly one executor. See [RUST_PRIMITIVES.md](RUST_PRIMITIVES.md) for the design and [DECISIONS.md](DECISIONS.md) OD-9 for the decision record.
 
-**Responsibility:** the provider-neutral vocabulary of one inference operation: request, content parts, tool definitions and choice, generation options, stream events, completion, failure, the capability interface, and the stream state machine rules.
+Crate layout (R1 implements the modules marked R1; the rest land in the step named):
 
-**Not responsible for:** choosing or resolving models; credentials; endpoints; wire encoding; retries; agent prompts; tool execution; sessions; persistence; user-facing text.
+| Module | Content | Lands in |
+| --- | --- | --- |
+| `contract.rs` | semantic types, `Limits`, `DeliveryCertainty`, `ErrorKind`, outcomes | R1 (this tree) |
+| `validate.rs` | deterministic request validation, event bound checks | R1 |
+| `wire.rs` | versioned JSON boundary encoding (private boundary types, strict decoding) | R1 |
+| `json_check.rs`, `base64.rs`, `redact.rs` | bounded JSON syntax check, canonical base64, secret masking for `Detail` | R1 |
+| `capability.rs` | the one-attempt `Capability` trait (start, bounded poll, cancel, close) | R2 |
+| `executor.rs`, `normalize.rs`, `diagnostics.rs` | state machine, event normalization, bounded redacted diagnostics | R2 |
+| `adapters/napi.rs`, `adapters/wasm.rs` | host adapters | R4 |
 
-```zig
-pub const contract_version: u32 = 1;
+Dependency policy, enforced by `rust/fx-core/check-boundaries.sh` and `.github/workflows/rust-core.yml`:
 
-pub const ModelRef = struct { id: []const u8 }; // opaque; interpreted only by the capability
+- Normal and build dependencies are limited to `rust/fx-core/deps-allowlist.txt`: `serde`, `serde_json` (exact pins) and their transitive crates. Serde is used only inside `wire.rs` for boundary encoding; no public contract type implements `Serialize` or `Deserialize`.
+- Forbidden in the graph: provider SDKs, HTTP/TLS clients, async runtimes, `libc`/`nix`, `wasm-bindgen`/`napi` families (adapters bring their own dependencies in their own crates or features in R4).
+- Forbidden in `src/`: `std::net`, `std::fs`, `std::process`, `std::env`, `std::thread`, `std::os`, `Instant`, `SystemTime`, `async`/`.await`, `unsafe` (also `#![forbid(unsafe_code)]` via lints), `include!`-family macros and `#[path]`.
+- Toolchain pinned in `rust-toolchain.toml` (1.97.0, with `rustfmt`, `clippy` and the `wasm32-unknown-unknown` target); dependencies locked in `rust/fx-core/Cargo.lock`; every gate runs with `--locked`.
 
-pub const Role = enum { system, user, assistant, tool };
+### Primitive A: Inference Contract (`rust/fx-core/src/contract.rs`)
 
-pub const CacheHint = enum { default, no_cache, breakpoint };
+**Responsibility:** the provider-neutral vocabulary of one inference operation: request, content parts, tool definitions and choice, generation options, stream events, completion, failure, cancellation, delivery certainty, limits, and (R2) the capability interface it is executed against.
 
-pub const Part = union(enum) {
-    text: []const u8,
-    image: struct { media_type: []const u8, data: []const u8 }, // verified bytes, never a path
-    tool_call: ToolCallProposal,   // assistant messages only
-    tool_result: ToolResult,       // tool messages only
-};
+**Not responsible for:** choosing or resolving models; credentials; endpoints; provider wire encoding; retries; agent prompts; tool execution; sessions; persistence; user-facing text.
 
-pub const ToolResult = struct {
-    call_id: []const u8,
-    name: []const u8,
-    output: union(enum) { text: []const u8, json: []const u8, failure: []const u8 },
-};
+The Rust types are normative; the summary below is for orientation:
 
-pub const Message = struct { role: Role, parts: []const Part, cache: CacheHint = .default };
+| Concept | Rust type | Notes |
+| --- | --- | --- |
+| Version | `CONTRACT_VERSION = 1` | `"v"` in every wire document |
+| Limits | `Limits` (`Limits::DEFAULT`) | the single place for every bound; defaults cite the oracle where it has one |
+| Model | `ModelRef(String)` | opaque; syntax and length only |
+| Request | `Request { model, messages, tools, tool_choice, options, correlation, budget }` | |
+| Message | `Message { role: Role, parts: Vec<Part>, cache: CacheHint }` | `Role` = System, User, Assistant, Tool |
+| Content | `Part::{Text, Image(ImageData), ToolCall(ToolCallProposal), ToolResult(ToolResult)}` | images are bytes plus `ImageMediaType` (PNG, JPEG, GIF, WebP), never paths or URLs |
+| Tools | `ToolDefinition { name, description, input_schema_json, execution: Client \| Provider, provider_args_json }`; `ToolChoice::{Auto, None, Required, Named}` | |
+| Proposals vs execution | `ToolCallProposal` (model asks; no authority) vs `ProviderToolRecord` (provider reports it ran a provider tool) | invariants 5 and 6 |
+| Options | `GenerationOptions { max_output_tokens, reasoning: ReasoningEffort::{Default, Named}, speed: Speed, response_format }` | reasoning labels are opaque catalog labels (oracle `types.zig:1561`) |
+| Correlation | `Correlation { request_id: RequestId([u8; 16]), affinity_key }` | forwarded, never interpreted |
+| Deadline | `AttemptBudget(Duration)` | a portable duration; the adapter converts it to a host-local deadline. No monotonic instant is ever serialized |
+| Events | `Event::{Metadata, TextDelta, ReasoningDelta, ToolInputStart, ToolInputDelta, ToolInputEnd, ToolCall, ProviderToolRecord, Usage, Finish}` | streamed tool input is display only |
+| Finish | `FinishReason::{Stop, Length, ContentFilter, ToolCalls, ProviderError, Other}` | oracle `types.zig:915` |
+| Usage | `Usage { input, output, cache_read, cache_write, reasoning tokens, cost }` | absent means unknown; cost is an opaque string |
+| Delivery | `DeliveryCertainty::{DefinitelyUnsent < PossiblySent < ConfirmedResponse}` | `advance` is monotonic; `may_have_executed` is false only for `DefinitelyUnsent` |
+| Errors | `ErrorKind` (14 closed values), `FailureOrigin::{Executor, Capability}`, `CapabilityError`, bounded and masked `Detail` | see §8 |
+| Outcomes | `Outcome::{Completed(Completion), Failed(Failure), Cancelled(Cancellation)}` | an interrupted stream is `Failed` with `partial` output; `Cancellation.remote` records what is known about remote cancellation |
 
-pub const ToolDefinition = struct {
-    name: []const u8,
-    description: []const u8,
-    input_schema_json: []const u8,
-    execution: enum { client, provider } = .client,
-    provider_args_json: ?[]const u8 = null, // provider tools only; opaque to FX
-};
+Deliberate deviations from the illustrative list in RUST_PRIMITIVES.md §11, both to preserve oracle behavior: `ErrorKind` keeps `ProviderUnavailable` and `SystemResumed` separate from `Transport`, because turn-level recovery distinguishes them (`model_response_recovery.zig` `FailureCause`); and the outcome has no separate "interrupted" variant, matching RUST_PRIMITIVES §5's three outcomes, with interruption expressed as `Failed { partial: Some(..) }`.
 
-pub const ToolChoice = union(enum) { auto, none, required, named: []const u8 };
-
-/// Today's types.ReasoningEffort is `auto | named(<catalog-declared label>)` (types.zig:1561);
-/// the label set comes from the model catalog, so FX keeps it opaque and Easy-LLM validates it.
-pub const ReasoningEffort = union(enum) { default, named: []const u8 };
-pub const Speed = enum { standard, fast };
-
-pub const ResponseFormat = struct { name: []const u8, description: []const u8, schema_json: []const u8 };
-
-pub const GenerationOptions = struct {
-    max_output_tokens: ?u32 = null,
-    reasoning: ReasoningEffort = .default,
-    speed: Speed = .standard,
-    response_format: ?ResponseFormat = null,
-};
-
-pub const Correlation = struct {
-    request_id: [16]u8,          // generated by the caller or the executor
-    affinity_key: ?[]const u8 = null, // e.g. a session id; forwarded, never interpreted
-};
-
-pub const Request = struct {
-    model: ModelRef,
-    messages: []const Message,
-    tools: []const ToolDefinition = &.{},
-    tool_choice: ToolChoice = .auto,
-    options: GenerationOptions = .{},
-    correlation: Correlation,
-    deadline: ?std.Io.Clock.Timestamp = null,
-};
-```
-
-Stream events emitted by the capability and re-emitted (normalized) by the executor:
-
-```zig
-pub const Event = union(enum) {
-    metadata: struct { model_reported: ?[]const u8, generation_id: ?[]const u8, timestamp_ms: ?i64 },
-    text_delta: []const u8,
-    reasoning_delta: []const u8,
-    tool_input_start: struct { id: []const u8, name: []const u8 },
-    tool_input_delta: struct { id: []const u8, delta: []const u8 }, // display only, never authoritative
-    tool_input_end: struct { id: []const u8 },
-    tool_call: ToolCallProposal,           // authoritative proposal
-    provider_tool_result: ProviderToolRecord,
-    finish: Finish,                        // terminal (success path)
-    failure: Failure,                      // terminal (error path)
-};
-
-pub const FinishReason = enum { stop, length, content_filter, tool_calls, provider_error, other };
-
-pub const Usage = struct {
-    input_tokens: ?u64 = null, output_tokens: ?u64 = null,
-    cache_read_tokens: ?u64 = null, cache_write_tokens: ?u64 = null, reasoning_tokens: ?u64 = null,
-};
-
-pub const Finish = struct { reason: FinishReason, usage: ?Usage = null, cost: ?[]const u8 = null }; // cost: decimal string, opaque
-
-pub const ToolCallProposal = struct {
-    id: []const u8,
-    name: []const u8,
-    arguments_json: []const u8,             // always valid JSON after normalization
-    integrity: enum { valid, malformed_replaced },
-    identity: enum { valid, absent, empty, wrong_type, duplicate, reconciled },
-    source: enum { final, streamed_fallback },
-};
-
-pub const ProviderToolRecord = struct {
-    call_id: []const u8, name: []const u8, input_json: []const u8,
-    result_json: ?[]const u8, identity_failure: ?ProviderResultIdentityFailure,
-};
-```
-
-`ProviderResultIdentityFailure` keeps the 13 cases of `types.zig:579-593`.
-
-Failures form a closed set:
-
-```zig
-pub const DeliveryCertainty = enum { definitely_unsent, possibly_sent };
-
-pub const ErrorKind = enum {
-    invalid_request,        // FX validation or capability rejected the request shape
-    unauthenticated,        // capability could not authenticate (FX never sees why)
-    forbidden,
-    model_unavailable,      // unknown model or no route
-    rate_limited,
-    provider_unavailable,   // 5xx-class, overloaded
-    transport_interrupted,
-    system_resumed,
-    timeout,                // request deadline reached
-    cancelled,
-    protocol_violation,     // malformed event order, invalid finish, oversize event
-    response_too_large,
-    capability_unavailable,
-    out_of_memory,
-};
-
-pub const Failure = struct {
-    kind: ErrorKind,
-    delivery: DeliveryCertainty,
-    retry_after_ms: ?u64 = null,
-    status_hint: ?u16 = null,          // diagnostic only (e.g. HTTP status); never a control input
-    detail: ?[]const u8 = null,        // bounded (≤600 bytes), secret-masked
-};
-```
-
-The capability interface (the only thing Easy-LLM implements for FX):
-
-```zig
-pub const Control = struct {
-    cancel: *std.atomic.Value(bool),
-    delivery: *std.atomic.Value(DeliveryCertainty), // monotonic: unsent → possibly_sent only
-    pulse: ?CooperativePulse = null,                 // single-threaded hosts
-};
-
-pub const Sink = struct {
-    ctx: *anyopaque,
-    emit: *const fn (ctx: *anyopaque, event: *const Event) Flow, // event memory valid only during the call
-};
-pub const Flow = enum { @"continue", stop }; // stop = consumer abandonment
-
-pub const Capability = struct {
-    ctx: *anyopaque,
-    vtable: *const struct {
-        /// Executes one attempt. Must emit events in order and end with exactly one
-        /// `finish` or `failure`, or return an error before emitting anything terminal.
-        run: *const fn (ctx: *anyopaque, gpa: std.mem.Allocator, request: *const Request,
-                        control: *const Control, sink: Sink) RunError!void,
-    },
-};
-pub const RunError = error{ OutOfMemory, CapabilityUnavailable };
-```
-
-**Stream state machine** (enforced by the executor's normalizer, not trusted from the capability):
+**Stream state machine and invariants I1-I10** (enforced by the executor's normalizer in R2, not trusted from the capability):
 
 ```text
-Open ──metadata*, text_delta*, reasoning_delta*, tool_input_*, tool_call*, provider_tool_result*──▶ Open
+Open ──metadata*, text_delta*, reasoning_delta*, tool_input_*, tool_call*, provider_tool_record*, usage*──▶ Open
 Open ──finish──▶ Finished (terminal)
-Open ──failure──▶ Failed (terminal)
-Open ──capability returns without a terminal event──▶ Failed{protocol_violation} (or Interrupted, see below)
-Any terminal ──any further event──▶ ignored and counted as an anomaly
+Open ──capability error──▶ Failed (terminal)
+Open ──capability ends without finish──▶ Failed { partial } (interrupted)
+Any terminal ──any further event──▶ protocol violation; the first terminal outcome is kept
 ```
-
-Invariants (each maps to an existing tested behavior; see [BEHAVIOR_MATRIX.md](BEHAVIOR_MATRIX.md)):
 
 - I1 exactly one terminal outcome per execution; events after it are dropped (`consumeSseStream ignores conflicting and late stream events without mutation`).
 - I2 `finish` is authoritative; the executor returns without waiting for transport framing (`consumeSseStream returns immediately after valid finish without waiting for done`).
-- I3 a stream that ends without `finish` yields `Interrupted` with the partial content preserved (`consumeSseStream preserves partial content without finish proof at EOF`), classified as `interrupted`, never as success.
-- I4 an unknown or empty finish reason is a `protocol_violation` and authorizes nothing (`consumeSseStream rejects malformed provider finish reasons`; E2E `empty provider finish reason fails closed before tool execution`).
+- I3 a stream that ends without `finish` is interrupted with the partial content preserved (`consumeSseStream preserves partial content without finish proof at EOF`), never a success.
+- I4 an unknown finish reason authorizes nothing: on the wire it fails decoding (`event_finish_unknown_reason` fixture); E2E `empty provider finish reason fails closed before tool execution`.
 - I5 `tool_input_delta` is never authoritative; the final `tool_call` input wins; fallback to streamed input only for an exactly matching, ended stream of the same name (`consumeSseStream accepts authoritative final input before end`, `... rejects fallback from an open stream`, `... rejects a final tool name that conflicts with streamed identity`).
 - I6 arguments are always valid JSON after normalization; malformed input is replaced by `{}` and flagged (`consumeSseStream replaces malformed trailing or duplicate-key serialized final input with safe JSON`).
 - I7 duplicate proposal ids are preserved and then rejected by admission, never merged (`consumeSseStream preserves duplicate final ids for duplicate admission`).
 - I8 provider tool results attach only to provider-executed calls with an unambiguous id (`consumeSseStream rejects provider results for local calls`, `... rejects ambiguous provider result correlation`).
-- I9 `delivery` only moves from `definitely_unsent` to `possibly_sent` (`delivery certainty stays definitely unsent when request setup fails`, `... becomes possibly sent before response head`).
-- I10 history validation: every assistant tool call has exactly one later matching tool result (`validateToolMessageHistory`).
+- I9 delivery certainty only moves forward (`delivery certainty stays definitely unsent when request setup fails`, `... becomes possibly sent before response head`; Rust: `delivery_certainty_is_monotonic`).
+- I10 history validation: every assistant tool call has exactly one later matching tool result (oracle `validateToolMessageHistory`; Rust: `validate_request`).
 
-### Primitive B: Inference Executor (`src/fx/executor.zig`)
+### Contract invariants frozen by R1
 
-**Responsibility:** run exactly one inference attempt against a supplied `Capability`: validate and normalize the request, invoke the capability, normalize and bound the event stream, forward events to the caller, accumulate the completion, enforce cancellation and the deadline, classify the outcome, and report diagnostics.
+These are the ten invariants the R1 PR establishes for all later work; each maps to named tests in [BEHAVIOR_MATRIX.md](BEHAVIOR_MATRIX.md) §8.
+
+1. One contract version and one typed semantic model (`contract.rs`); JSON shapes exist only inside `wire.rs`.
+2. Invalid requests are rejected before any capability call (`parse_request` = decode + `validate_request`; the executor in R2 must call it first).
+3. Delivery certainty is monotonic: `DefinitelyUnsent → PossiblySent → ConfirmedResponse`.
+4. Cancellation never implies that the remote operation did not execute.
+5. Tool proposals are data, not execution authority.
+6. Provider-executed tool records remain distinct from model proposals.
+7. All public input sizes and collection counts have explicit bounds in `Limits`.
+8. No credentials, prompts, image bytes, tool arguments or full provider error bodies appear in errors or diagnostics.
+9. No ambient network, filesystem, process, credential or configuration access exists in the core.
+10. No host-specific type leaks into the contract.
+
+### Validation ownership
+
+| Check | Owner | Where |
+| --- | --- | --- |
+| Byte size of documents, before parsing | FX | `wire::decode_*` (`Limits.max_request_bytes`, `max_event_bytes`) |
+| UTF-8, JSON syntax, version, tags, enum values, unknown/duplicate/missing fields, trailing data | FX | `wire::decode_*` |
+| Model id syntax and length (opaque otherwise) | FX | `validate_request` |
+| Whether the model exists, is permitted, or supports the options | Easy-LLM | capability; reported as `ModelUnavailable` / `InvalidRequest` |
+| Message count, part count, role/content combinations, total text | FX | `validate_request` |
+| Tool-call/result pairing, duplicate ids, name agreement (oracle rules) | FX | `validate_request` |
+| Tool names, ids, description/schema/argument bounds, duplicate tool names, named-choice existence | FX | `validate_request` |
+| JSON syntax of schemas, arguments, provider args and JSON tool output (strict RFC 8259, duplicate keys rejected, depth-bounded) | FX | `validate_request` via `json_check` |
+| JSON Schema *semantics* of tool and response schemas | not FX | Chip (tool schemas it authors), Easy-LLM (provider mapping) |
+| Mapping `response_format` to provider structured-output features; checking completed output against the schema | Easy-LLM / caller | FX does not validate completed output against the schema (single validation authority) |
+| Image media type sniffing against declared type, per-image, count and total bounds | FX | `validate_request` |
+| Reasoning label syntax; whether the model supports the label | FX syntax; Easy-LLM support | |
+| Capability event field bounds | FX | `validate_event_bounds` (decode) |
+| Event semantics: ordering, terminal rules, proposal identity, malformed-argument replacement | FX executor | R2 normalizer |
+| Tool-call admission for execution (permission) | Chip / Attn | never FX |
+
+### Primitive B: Inference Executor (`rust/fx-core/src/executor.rs`, R2)
+
+**Responsibility:** run exactly one inference attempt against a supplied capability: validate (via `parse_request`/`validate_request`), start the capability once, poll bounded batches, normalize events (I1-I10), forward them, accumulate the bounded completion, enforce cancellation and the attempt budget, and produce exactly one `Outcome` with redacted diagnostics.
 
 **Not responsible for:** retries, fallback, model or provider choice, credentials, prompt assembly, history budgeting, tool admission or execution, persistence, usage ledgers, user-facing wording.
 
-```zig
-pub const Limits = struct {
-    max_event_bytes: usize = 32 << 20,       // today's SSE line cap
-    max_content_bytes: ?usize = null,        // today's content_capture_limit
-    max_proposals: usize = 256,
-    max_detail_bytes: usize = 600,
-};
+The capability shape is the non-blocking, host-drivable trait in RUST_PRIMITIVES.md §6 (`start`, bounded `poll`, `cancel`, `close`); it lands in R2 with the fake capability. Diagnostics (formerly primitive 6) are bounded metadata only: request id, timing, terminal cause, event and byte counts, and a content-free request-shape summary (today's `formatGatewayRequestShapeSummary`).
 
-pub const Completion = struct {
-    content: []const u8,
-    reasoning_bytes: usize,                  // reasoning is streamed, counted, not retained (today's behavior)
-    proposals: []const contract.ToolCallProposal,
-    provider_records: []const contract.ProviderToolRecord,
-    finish_reason: contract.FinishReason,
-    usage: ?contract.Usage,
-    cost: ?[]const u8,
-    generation_id: ?[]const u8,
-    model_reported: ?[]const u8,
-    disposition: Disposition,                // classifyProviderCompletion
-    anomalies: u32,
-};
+### Primitive C: Runtime Adapters (R4)
 
-pub const Disposition = enum { complete, tool_proposals, length_limited, provider_failure, invalid_completion };
+Shared rule: adapters translate types and lifetimes only. They do not add retries, defaults or validation beyond the executor's, they reuse `wire.rs` for JSON, and they run the same fixtures (`rust/fx-core/tests/fixtures/contract/` and the R2 executor fixtures).
 
-pub const Outcome = union(enum) {
-    completed: Completion,
-    interrupted: struct { partial: Completion, delivery: contract.DeliveryCertainty },
-    failed: contract.Failure,
-};
-
-pub const Result = struct {
-    arena: std.heap.ArenaAllocator, // owns every slice in `outcome`
-    outcome: Outcome,
-    diagnostics: Diagnostics,
-    pub fn deinit(self: *Result) void;
-};
-
-pub fn execute(
-    gpa: std.mem.Allocator,
-    capability: contract.Capability,
-    request: *const contract.Request,
-    control: *const contract.Control,
-    observer: ?contract.Sink,   // receives normalized events in order; may return .stop
-    limits: Limits,
-) error{OutOfMemory}!Result;
-
-/// Pure validator used by callers before acting on proposals (today's authoritativeToolAdmission).
-pub fn admitProposals(completion: *const Completion) Admission;
-```
-
-Behavior:
-
-1. **Validation** before any capability call (delivery stays `definitely_unsent`): non-empty model id; at least one message; role/part compatibility (tool results only in `tool` messages, proposals only in `assistant`); I10 pairing; unique tool definition names; `named` tool choice references a defined tool; `response_format.schema_json` parses as JSON. Failure → `failed{invalid_request, definitely_unsent}`.
-2. **Invocation:** exactly one `capability.run`. The executor owns a cancel watcher only for deadline enforcement: when `deadline` passes, it sets `control.cancel` and the outcome is `failed{timeout}`.
-3. **Normalization:** the state machine above; bounds from `Limits` (exceeding `max_event_bytes` → `failed{response_too_large}`); proposal normalization I5 to I8; secret masking of `detail`.
-4. **Consumer abandonment:** if `observer.emit` returns `.stop`, the executor sets `control.cancel`, waits for `run` to return, and yields `failed{cancelled}` with the current delivery certainty.
-5. **Classification:** `Disposition` from `classifyProviderCompletion`; no finish → `interrupted`.
-6. **Ownership:** all output memory lives in `Result.arena`; observer events are valid only during the callback. One `Result` per call; no global state; `execute` is safe to call concurrently with distinct `Control` values.
-
-**Diagnostics (merged primitive 6):**
-
-```zig
-pub const Diagnostics = struct {
-    request_id: [16]u8,
-    started_ns: u64, first_event_ns: ?u64, finished_ns: u64,
-    terminal_cause: enum { valid_finish, invalid_finish, interrupted, failure, cancelled, deadline, abandoned },
-    events: u32, text_bytes: u64, reasoning_bytes: u64, tool_input_bytes: u64,
-    request_shape: ShapeSummary, // roles, part counts, tool count, choice; no content (today's formatGatewayRequestShapeSummary)
-};
-```
-
-The executor also calls an optional `trace` hook with keyless metadata (same policy as `debug_trace.keylessJsonPreview`). It never logs message text, tool arguments, credentials or model output. Durable evidence is the consumer's: the executor's `Diagnostics` is plain data for Chip or PAX to persist.
-
-### Primitive C: Runtime Adapters
-
-Shared rule: adapters translate types and lifetimes only. They do not add retries, defaults or validation beyond what the executor does, and they run the same conformance suite.
-
-**Native Zig API.** The `fx` module itself (A and B). This is what the product shell, and later Chip, import directly. There is no IPC.
-
-**N-API (`src/fx/napi.zig`, artifact `libfx.node`, `libfxApiVersion = 3`).** Exports:
-
-| Function | Behavior |
-| --- | --- |
-| `createContext({maxConcurrent?})` | Creates an executor context with an owned `std.Io.Threaded`; type-tagged handle (keeps today's `RuntimeHandle` pattern and 64-slot cap) |
-| `startInference(ctx, requestJson, capability)` | Validates and starts one execution on a worker thread; returns an inference handle |
-| `nextEvents(handle)` | Returns a batch of normalized events and, at the end, the outcome; replaces the 2 ms ACP byte polling with a `napi_threadsafe_function` notification |
-| `cancelInference(handle)` | Sets cancel; idempotent |
-| `destroyInference(handle)`, `destroyContext(ctx)` | Join and free; idempotent; use after destroy throws `LIBFX_NATIVE_CLOSED` |
-
-The `capability` argument is resolved by OD-3 ([DECISIONS.md](DECISIONS.md)): either Easy-LLM's native capability linked into the addon, or a host capability bridged with today's `FetchBridge` state machine (`napi_fetch_state.zig`) generalized from bytes to events and from one to N concurrent handles. Error codes keep the `LIBFX_*` scheme. ACP byte pipes (`writeCore`, `drainCore`, `closeCore`) are removed.
-
-**WASM (`src/fx/wasm.zig`, artifact `fx-core.wasm`).** A reactor module (no `_start`, no WASI stdio framing):
-
-| Export | Behavior |
-| --- | --- |
-| `fx_alloc(len) → ptr`, `fx_free(ptr, len)` | Guest-owned buffers |
-| `fx_infer_start(request_ptr, request_len) → handle` | Validates and opens an execution |
-| `fx_infer_push(handle, event_ptr, event_len) → code` | Host pushes the next capability event (encoded per the contract schema) |
-| `fx_infer_poll(handle, out_ptr, out_cap) → len` | Guest returns normalized events and finally the outcome; negative = buffer too small (today's overflow rule) |
-| `fx_infer_cancel(handle)`, `fx_infer_close(handle)` | |
-
-Imports: none required beyond `fx_trace` (optional) and `fx_now_ms`. In this design the guest is a pure state machine driven by the host, so **JSPI is no longer required** for inference, filesystem/socket/thread imports are absent, and the module runs in any WebAssembly host. The host obtains events from whatever capability it has (Easy-LLM in JS, a host accelerator, or a remote endpoint). This replaces today's JSPI-dependent `fx_http_stream_*` polling, which assumes FX itself speaks HTTP to a fixed provider.
+- **Native Rust API.** The `fx-core` crate itself. Rust consumers link it directly; the Zig shell reaches it through the C-compatible boundary chosen in R4/R5 (opaque handles, fixed-width scalars, pointer/length pairs, Rust-owned buffers with a matching free; RUST_PRIMITIVES §11).
+- **N-API (`libfx.node`, `libfxApiVersion = 3`).** `createInference({capability})`, `execute(request, {signal})` returning ordered events and one outcome; type-tagged handles with slot caps and exactly-once destruction (kept from `napi_core_main.zig`); thread-safe notification instead of 2 ms polling; capability source per OD-3. The N-API binding crate is an adapter dependency decision for R4 and stays out of `fx-core`'s graph.
+- **WASM (`fx-core.wasm`, `wasm32-unknown-unknown`).** A host-driven reactor: `fx_create`, `fx_begin`, `fx_push_event`, `fx_poll`, `fx_cancel`, `fx_close`, `fx_last_error` (RUST_PRIMITIVES §10). No WASI, filesystem, sockets, threads, JSPI or suspending imports. R1 already builds the contract for `wasm32-unknown-unknown` in CI.
 
 ### Event and request encoding across process or language boundaries
 
-N-API and WASM need a serialized form. It is a versioned JSON schema derived one-to-one from the Zig types (`{"v":1,"type":"text_delta","text":"..."}`, etc.), defined once in `src/fx/contract_json.zig` with round-trip tests. It is an encoding of the contract, not a second API: no field may exist in JSON that does not exist in Zig.
+The versioned JSON encoding is implemented once, in `rust/fx-core/src/wire.rs`, with round-trip and strict-rejection tests. Requests are flat objects with `"v"`; events, outcomes and capability errors are `{"v":1,"event"|"outcome"|"error":{...}}` envelopes; tagged unions use `"type"`. It is an encoding of the contract, not a second API: boundary types are private, and no field exists in JSON that does not exist in the Rust types.
 
 ## 5. Ownership boundaries
 
@@ -427,7 +248,7 @@ flowchart LR
     SHELL["fx product shell<br/>(OD-1)"]
     JS["JS / browser hosts"]
   end
-  subgraph FX["FX (src/fx)"]
+  subgraph FX["FX (rust/fx-core)"]
     A["A. Contract<br/>types · events · errors · state machine · Capability interface"]
     B["B. Executor<br/>validate · run once · normalize · cancel · diagnostics"]
     C1["C. N-API adapter"]
@@ -469,6 +290,8 @@ The contract makes the three modes interchangeable because FX never sees how eve
 
 ## 8. Error taxonomy mapping from today
 
+Target values are the wire spellings of `fx_core::ErrorKind`. HTTP status, provider codes, retry-after parsing and body caps are Easy-LLM transport concerns; FX receives the normalized `CapabilityError`.
+
 | Current signal (evidence) | Target `ErrorKind` |
 | --- | --- |
 | `InvalidGatewayHistory`, `InvalidStructuredResponseSchema`, `MissingStructuredResponseFormat`, `StructuredResponseRequiresVerifiedImages` (`gateway_json.zig`, `builtins/gateway.zig`) | `invalid_request` |
@@ -476,34 +299,34 @@ The contract makes the three modes interchangeable because FX never sees how eve
 | HTTP 401 / missing credential (`MissingCredentials`) | `unauthenticated` |
 | HTTP 403 | `forbidden` |
 | HTTP 404 on model | `model_unavailable` |
-| HTTP 429 with `retry-after` (`client.zig:1830`) | `rate_limited` + `retry_after_ms` |
+| HTTP 429 with `retry-after` (`client.zig:1830`) | `rate_limited` + `retry_after` |
 | HTTP 5xx (`delivery_ambiguous`) | `provider_unavailable`, `possibly_sent` |
 | `finish{error}` / `content-filter` | `completed` with `finish_reason = provider_error / content_filter`, disposition `provider_failure` (not a transport failure) |
-| `ConnectionReset`, `ConnectionTimedOut`, TLS, DNS, `ReadFailed`, `WriteFailed` (`networkFailureEvidence`) | `transport_interrupted` |
+| `ConnectionReset`, `ConnectionTimedOut`, TLS, DNS, `ReadFailed`, `WriteFailed` (`networkFailureEvidence`) | `transport` |
 | `SystemResumed` | `system_resumed` |
 | `Timeout` (bounded operations) | `timeout` |
 | `Cancelled` | `cancelled` |
 | `InvalidProviderFinishReason`, `GatewaySseReadStalled` | `protocol_violation` |
-| `GatewaySseEventTooLarge`, `GatewayGenerationResponseTooLarge` | `response_too_large` |
+| `GatewaySseEventTooLarge`, `GatewayGenerationResponseTooLarge` | `resource_limit` |
 | `AgentStreamProviderUnavailable`, `HostStreamFailed`, `JsHostStreamFailed` | `capability_unavailable` |
-| `OutOfMemory` | `out_of_memory` (returned as a Zig error from `execute`) |
+| `OutOfMemory` | `internal` (Rust aborts on allocation failure by default; bounded inputs make it a defect, not a runtime path) |
 
 `InvalidE2EGatewayUrl`, `InvalidGenerationId` and the catalog errors move to Easy-LLM with their callers.
 
 ## 9. Cancellation and cleanup guarantees
 
-- C1 Cancel before `execute` performs validation-only work and returns `failed{cancelled, definitely_unsent}` without calling the capability (today: `direct gateway cancellation before admission opens no connection`).
-- C2 Cancel during the capability call: the capability must observe `control.cancel` and return promptly; the executor returns `failed{cancelled}` with the delivery certainty the capability recorded.
-- C3 Cancel during streaming: events already forwarded remain valid for the observer; no events are forwarded after cancel is observed; partial content is available in the failure's companion `interrupted` data when the caller asked for it.
+- C1 Cancel before start performs validation-only work and returns `Cancelled { delivery: DefinitelyUnsent, remote: NotStarted }` without calling the capability (today: `direct gateway cancellation before admission opens no connection`).
+- C2 Cancel during the capability call: the executor calls the capability's `cancel` and stops forwarding; the outcome is `Cancelled` with the delivery certainty recorded so far and `remote = Unconfirmed` unless the capability confirms. Cancellation never claims the remote operation did not run (invariant 4).
+- C3 Cancel during streaming: events already forwarded remain valid for the observer; no events are forwarded after cancel is observed; partial content is carried in `Cancellation.partial`.
 - C4 Double cancel is a no-op; cancel after a terminal outcome is a no-op.
-- C5 Consumer abandonment (`Flow.stop`) is equivalent to C2/C3.
-- C6 Every path frees all executor memory except the returned `Result.arena`; the allocation-failure fuzz in today's tests (`consumeSseStream frees all response state across allocation failures`) is ported.
+- C5 Consumer abandonment is equivalent to C2/C3, and cleanup is bounded even when the capability cannot interrupt the provider.
+- C6 Every path releases all per-execution state (Rust ownership plus explicit capability `close`); the oracle's allocation-failure sweep (`consumeSseStream frees all response state across allocation failures`) is ported as resource-teardown tests on every terminal path.
 - C7 The deadline is absolute; progress never extends it (`bounded gateway progress does not extend the absolute deadline`).
 
 ## 10. Security assumptions
 
 - FX handles no credential. A capability that needs one obtains it from Easy-LLM's own store.
-- `Request` content is caller data and may contain secrets; FX never logs it. `Failure.detail` is masked with `text_utils.maskSecrets` and bounded.
+- `Request` content is caller data and may contain secrets; FX never logs it. `Detail` is masked (port of the oracle's `maskSecrets` patterns, `rust/fx-core/src/redact.rs`) and bounded to `Limits.max_detail_bytes`.
 - All sizes are bounded (`Limits`), including event size, proposal count and detail length.
 - FX performs no filesystem, process or network access. The WASM module imports nothing that grants it.
 - Model output is data. Proposals carry no authority; `admitProposals` only checks structural validity, never permission.
@@ -511,6 +334,6 @@ The contract makes the three modes interchangeable because FX never sees how eve
 
 ## 11. Versioning and compatibility
 
-- `contract_version` (Zig), `"v"` (JSON), `libfxApiVersion` (N-API) and a WASM export `fx_contract_version()` move together. Additive changes (new optional field, new event variant that older consumers may ignore) bump the minor documented version; removing or changing semantics bumps `contract_version`.
+- `fx_core::CONTRACT_VERSION` (Rust), `"v"` (JSON), `libfxApiVersion` (N-API) and a WASM export `fx_contract_version()` move together. Additive changes (new optional field, new event variant that older consumers may ignore) bump the minor documented version; removing or changing semantics bumps `contract_version`.
 - The npm package major version changes when the rebuilt core replaces `createFxAgent` (an intentional breaking release; see R-1 in [RISKS.md](RISKS.md)).
 - The product shell's public contracts (`fx ask --json`, `fx status --json`, ACP) are outside FX and keep their own compatibility policy with their owner.

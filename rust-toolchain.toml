@@ -1,0 +1,6 @@
+# Pinned toolchain for the Rust FX core (rust/fx-core). The Zig product build is unaffected.
+[toolchain]
+channel = "1.97.0"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]
