@@ -1,6 +1,7 @@
 name: Rust core
 
-# Gates for the Rust FX inference contract (rust/fx-core). Additive: the Zig,
+# Gates for the Rust FX inference contract (rust/fx-core) and the single-attempt
+# capability adapter (rust/fx-single-attempt). Additive: the Zig,
 # native, N-API, WASM and Full CI workflows are unchanged.
 
 on:
@@ -39,6 +40,47 @@ jobs:
     defaults:
       run:
         working-directory: rust/fx-core
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned toolchain
+        working-directory: .
+        run: |
+          channel="$(sed -nE 's/^channel = "([^"]+)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal \
+            --component rustfmt,clippy --target wasm32-unknown-unknown
+          rustc --version
+          cargo --version
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Lint
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Build native
+        run: cargo build --locked --release
+
+      - name: Build wasm32-unknown-unknown
+        run: cargo build --locked --release --target wasm32-unknown-unknown
+
+      - name: Dependency and source boundaries
+        run: ./check-boundaries.sh
+
+  single-attempt:
+    name: Rust single-attempt adapter (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    defaults:
+      run:
+        working-directory: rust/fx-single-attempt
     steps:
       - uses: actions/checkout@v4
 

@@ -177,5 +177,6 @@ sdk/tests/test-native-core-	EMB-NAPI	FX	REBUILD	lifecycle, cancel, misuse, worke
 sdk/tests/test-term-login.mjs	PRV-AUTH	Easy-LLM	REMOVE	browser Vercel device login
 sdk/tests/test-core-browser.mjs	EMB-SDK	FX	REBUILD	
 rust/fx-core/	INF-CONTRACT	FX	KEEP	normative Rust contract and executor crate (R1, R2); OD-9
+rust/fx-single-attempt/	INF-CONTRACT	FX	KEEP	single-attempt provider capability adapter (R3); OD-9
 rust-toolchain.toml	OPS-BUILD	FX	KEEP	pinned Rust toolchain for rust/fx-core
 .github/workflows/rust-core.yml	OPS-CI	repo	KEEP	Rust core gates: fmt, clippy, test, native and wasm32 builds, boundary check

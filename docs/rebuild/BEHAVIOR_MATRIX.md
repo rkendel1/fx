@@ -242,3 +242,27 @@ Expected results come from the oracle tests cited in each fixture's `oracle` fie
 | Interrupting a blocking `poll` | Not possible without a clock or thread in the core; R4 adapters drive `poll` from the host loop (RISKS R-22) |
 | Generic `*_KEY=` secret heuristic for capability-supplied `Detail` | R3 (§8.3) |
 | Throughput micro-benchmark | R6 |
+
+## 10. R3 single-attempt adapter test map (Rust, `rust/fx-single-attempt`)
+
+Tests are in `rust/fx-single-attempt/tests/adapter.rs` and run `fx_core::execute` over a scripted `ProviderPort`. They need no network, credentials, clock or threads. Mapping rules are in [SINGLE_ATTEMPT.md](SINGLE_ATTEMPT.md).
+
+| Behavior | Matrix link | Tests |
+| --- | --- | --- |
+| Text answer completes with usage and the mapped finish reason | BM-01, BM-05, BM-13 | `a_text_answer_completes_with_usage_and_the_mapped_finish_reason`, `done_expands_to_metadata_usage_and_finish_in_order`, `done_with_no_usage_emits_no_usage_event` |
+| Tool calls are proposals; absent arguments are left for FX to refuse | BM-04, I6, I7 | `tool_calls_are_proposals_and_missing_arguments_are_left_for_fx_to_refuse` |
+| A synthesized `done` without a reason is an interrupted attempt, never a completion | BM-10, I3 | `a_synthesized_done_without_a_reason_is_an_interrupted_attempt_not_a_completion`, `a_synthesized_done_that_carries_a_finish_reason_completes`, `a_provider_marker_without_a_reason_completes_as_other` |
+| An incomplete stream keeps partial output | BM-10 | `an_incomplete_stream_ends_the_batch_and_fx_reports_the_partial_output` |
+| Nothing after the provider's `done` is read or forwarded | I1, I2 | `items_after_the_providers_done_are_not_read_or_forwarded` |
+| Events from one item respect the executor's poll bound; queued events precede a stored failure | BM-17 | `a_done_that_expands_beyond_the_poll_bound_is_delivered_across_polls`, `queued_events_are_delivered_before_a_poll_failure_is_reported` |
+| Failures before the call are unsent; after the call never unsent | BM-06, I9 | `a_failure_before_the_provider_was_called_is_definitely_unsent`, `a_failure_after_the_provider_was_called_is_never_reported_as_unsent`, `delivery_is_mapped_from_observation_and_never_lowered`, `the_adapter_raises_an_error_to_the_delivery_it_already_observed` |
+| One invocation, no retry or redirect; retry-after and status preserved | BM-06 | `the_port_is_invoked_once_and_a_failure_is_not_retried_or_redirected` |
+| Every failure kind maps as documented, never from message text; finish reasons map exactly | BM-06 | `failure_kinds_map_as_documented_and_never_from_message_text`, `finish_reasons_map_exactly_and_unknown_values_are_other` |
+| Provider text is masked and bounded; refusals never echo request content | BM-15 | `provider_text_in_failures_is_masked_and_bounded`, `an_empty_provider_message_leaves_no_detail`, `refusals_never_echo_request_content` |
+| Requests the port cannot carry are refused before anything is sent | BM-07, BM-13 | `a_request_the_port_cannot_carry_is_refused_before_anything_is_sent`, `a_supported_feature_set_is_not_refused` |
+| Cancellation never reaches the port before start; mid-stream status is honest; cancel after start is not "unsent" | BM-08, C1-C4, invariant 4 | `cancellation_before_start_never_reaches_the_port`, `cancellation_mid_stream_is_unconfirmed_unless_the_transport_was_seen_closing`, `a_cancel_right_after_start_is_not_reported_as_unsent` |
+| Budget reaches the port; a timeout keeps its delivery | BM-08, C7 | `the_budget_reaches_the_port_and_its_timeout_is_a_failure_that_keeps_delivery` |
+| FX invariants hold through the adapter | BM-07, BM-11 | `an_invalid_request_never_reaches_the_port`, `a_stalled_port_is_bounded_by_the_poll_limit`, `the_port_is_polled_with_the_executors_event_bound`, `independent_attempts_share_nothing` |
+| No ambient authority, one dependency (`fx-core`), no global mutable state; builds for `wasm32-unknown-unknown` | invariant 9, BM-16 (prerequisite) | `rust/fx-single-attempt/check-boundaries.sh`; CI job "Rust single-attempt adapter" |
+
+Not covered until R4: the port implemented over the real TypeScript operation, and shared fixtures run through it (BM-13 optional smoke, BM-14).
