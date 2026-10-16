@@ -74,6 +74,15 @@ jobs:
           git fetch --no-tags --filter=blob:none origin main
           git merge-base --is-ancestor "$CHIP_RS_REF" FETCH_HEAD || { echo "$CHIP_RS_REF is not merged into chip-rs main" >&2; exit 1; }
 
+      # `chip work` verifies PAX before it asks a model, so without PAX the Rust side makes zero
+      # requests and every work scenario fails. Same pinned release chip-rs's CI uses.
+      - name: Install PAX (pinned release v0.4.1 at 674f3b3)
+        run: |
+          git clone --depth 1 --branch v0.4.1 https://github.com/rkendel1/pax "$RUNNER_TEMP/pax"
+          test "$(git -C "$RUNNER_TEMP/pax" rev-parse HEAD)" = 674f3b3143874d1a692aca103b33f89da31a82ac
+          cargo build --release --locked --manifest-path "$RUNNER_TEMP/pax/Cargo.toml"
+          echo "$RUNNER_TEMP/pax/target/release" >> "$GITHUB_PATH"
+
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
         with:
