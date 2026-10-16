@@ -67,9 +67,16 @@ jobs:
       - name: Build FX host module
         run: cargo build --manifest-path rust/fx-host/Cargo.toml --locked --release --target wasm32-unknown-unknown
 
+      # chip-session-memory is a storage experiment with a private git dependency (flow_db) that
+      # this workflow cannot fetch and that the Chip module does not use. It is dropped from the
+      # throwaway checkout's workspace only; chip-rs's own CI builds and tests it.
       - name: Build Chip module
         working-directory: chip-rs
-        run: cargo build -p chip-wasm-host --locked --release --target wasm32-unknown-unknown
+        run: |
+          sed -i 's|, "crates/chip-session-memory"||' Cargo.toml
+          sed -i '/^feltdb = /d' Cargo.toml
+          grep -q chip-session-memory Cargo.toml && { echo "workspace edit failed"; exit 1; }
+          cargo build -p chip-wasm-host --release --target wasm32-unknown-unknown
 
       - name: Install host dependencies
         working-directory: host/node
