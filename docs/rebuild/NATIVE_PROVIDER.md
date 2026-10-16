@@ -65,6 +65,8 @@ Libraries: `ureq` 3 (blocking HTTP) with `rustls` and bundled `webpki-roots`, an
 
 `invoke` validates the request, starts one worker thread, and returns. The worker makes exactly one `POST`, follows no redirects, ignores proxy environment variables, and streams the response into a channel. `poll` waits up to 25 ms on that channel and returns what arrived. There is no retry, no fallback, no routing and no second request; `check-boundaries.sh` enforces a single `.post(` site in the source.
 
+Trust roots: `https` endpoints are validated against the bundled `webpki-roots` unless the host calls `with_root_certificates_pem(pem)` on either config. That replaces the bundled roots with exactly the `CERTIFICATE` blocks in `pem` (other PEM items are ignored), for an endpoint behind a TLS-intercepting proxy or signed by a private CA. Validation stays on. A bundle that is not valid PEM or holds no certificate is a `ConfigError`. The host reads the bundle, for example from `SSL_CERT_FILE`; the crate still reads no environment or file.
+
 OpenAI-compatible: the body has the model reference, role-tagged text messages, `stream: true`, `stream_options.include_usage: true` and, when the request carries them, `max_tokens`, `temperature` (the contract's thousandths as a JSON number; `0` is sent as `0.0`, never dropped) and `response_format` as `{"type":"json_schema","json_schema":{"name","description","schema","strict":false}}` built from FX's response format. FX has already validated the schema as a JSON object. Consecutive system messages are sent as one message joined by a blank line, in order (some local servers' chat templates accept a single leading system message); a system message after another role stays where it is. The credential is only in the `Authorization` header.
 
 OpenAI-compatible template thinking: `OpenAiConfig::with_chat_template_thinking(bool)` adds a top-level `"chat_template_kwargs":{"enable_thinking":<bool>}` member to every body. It is a host setting for a vendor extension that servers rendering a chat template (LM Studio, vLLM, Qwen-style models) read; it is not FX's reasoning effort, which stays refused, and it is never prompt text. It is absent unless set, because servers that do not know the field may reject it. The Anthropic adapter has no equivalent and carries nothing.
@@ -135,7 +137,8 @@ The host passes `OpenAiConfig::new(base_url, Secret)`. Nothing is read from the 
 | Structured output (JSON schema) | OpenAI-compatible: supported; Anthropic: refused before dispatch | refused before dispatch |
 | Prompt cache hints | ignored | ignored |
 | Keyless local servers (LM Studio) | supported (`without_key`) | supported |
-| Proxies, custom CA certificates, mTLS | not supported (bundled public roots, no proxy) | uses the Node `fetch` environment |
+| Proxies, mTLS | not supported (no proxy, no client certificate) | uses the Node `fetch` environment |
+| Custom CA certificates | host-supplied PEM roots (`with_root_certificates_pem`), replacing the bundled roots | uses the Node `fetch` environment |
 | Remote cancellation confirmation | never confirmed (`unconfirmed`) | transport closing is observed |
 
 "Refused before dispatch" is `ErrorKind::CapabilityUnavailable` with `definitely_unsent`, produced by the capability's support gate. The adapter has a second check that fails a tool message, a non-text part, a tool definition, reasoning effort, speed or structured output with `Unsupported` before any thread starts (`definitely_unsent`).
@@ -162,10 +165,12 @@ Native is the stricter behavior wherever the two differ, and the more informativ
 All evidence here is **mocked transport**: a deterministic HTTP server on loopback, plain `http`, a fake credential, no external network. It proves how the adapter and FX behave for those bytes. It does **not** prove:
 
 * anything about a live provider (no live request was made in this change; the wire format was written from the documented chat-completions stream and the Easy-LLM adapter's parsing);
-* the TLS path (`https`, certificate validation, bundled roots): the library code is established but no test here exercises a handshake;
-* behavior behind a proxy or with a corporate CA.
+* the TLS path (`https`, certificate validation, bundled or host-supplied roots): the library code is established but no test here exercises a handshake (the unit tests cover parsing a PEM bundle, not a handshake);
+* behavior behind an explicit proxy.
 
-Live verification needs a real key (or a running LM Studio) and is out of scope for CI. To run one by hand, build `fx-native-provider` into a host, configure one provider (for example `AnthropicConfig::new("https://api.anthropic.com/v1", Secret::new(key))`, `OpenAiConfig::new("https://openrouter.ai/api/v1", ..)` or `OpenAiConfig::without_key("http://localhost:1235/v1")`) and execute one request; record the result separately from this document. None has been run.
+One manual run exercised host-supplied roots: an `https` request to the Vercel AI Gateway through a TLS-intercepting egress proxy failed certificate validation (`UnknownIssuer`) with the bundled roots and completed the TLS exchange with the proxy's CA bundle passed to `with_root_certificates_pem`. It is not part of CI.
+
+Live verification needs a real key (or a running LM Studio) and is out of scope for CI. To run one by hand, build `fx-native-provider` into a host, configure one provider (for example `AnthropicConfig::new("https://api.anthropic.com/v1", Secret::new(key))`, `OpenAiConfig::new("https://openrouter.ai/api/v1", ..)` or `OpenAiConfig::without_key("http://localhost:1235/v1")`) and execute one request; record the result separately from this document. Apart from the TLS run above, none has been run.
 
 ### Native conformance suite
 

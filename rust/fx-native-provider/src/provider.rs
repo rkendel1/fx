@@ -271,7 +271,15 @@ impl<W: Wire> Worker<W> {
 
     fn exchange(&self, body: &[u8]) -> Result<(), PortFailure> {
         let settings = self.wire.settings();
-        let agent: ureq::Agent = ureq::Agent::config_builder()
+        let mut builder = ureq::Agent::config_builder();
+        if let Some(roots) = &settings.root_certs {
+            builder = builder.tls_config(
+                ureq::tls::TlsConfig::builder()
+                    .root_certs(roots.clone())
+                    .build(),
+            );
+        }
+        let agent: ureq::Agent = builder
             .http_status_as_error(false)
             .max_redirects(0)
             .proxy(None)

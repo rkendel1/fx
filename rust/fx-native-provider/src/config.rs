@@ -2,6 +2,8 @@
 
 use std::time::Duration;
 
+use ureq::tls::{PemItem, RootCerts, parse_pem};
+
 use crate::secret::Secret;
 
 /// Why a configuration was refused.
@@ -30,6 +32,8 @@ pub struct Common {
     pub(crate) extra_headers: Vec<(String, String)>,
     pub(crate) connect_timeout: Duration,
     pub(crate) default_deadline: Duration,
+    /// Host-supplied trust roots that replace the bundled public roots. `None` keeps the bundle.
+    pub(crate) root_certs: Option<RootCerts>,
     /// A plain-`http` private-LAN endpoint accepted by the keyless opt-in. No header may be
     /// added to such a configuration, so nothing credential-like can ride along in the clear.
     insecure_lan: bool,
@@ -117,6 +121,7 @@ impl Common {
             extra_headers: Vec::new(),
             connect_timeout: CONNECT_TIMEOUT,
             default_deadline: DEFAULT_DEADLINE,
+            root_certs: None,
             insecure_lan,
         })
     }
@@ -148,6 +153,28 @@ impl Common {
         Ok(())
     }
 
+    pub(crate) fn set_root_certificates(&mut self, pem: &[u8]) -> Result<(), ConfigError> {
+        let mut certs = Vec::new();
+        for item in parse_pem(pem) {
+            match item {
+                Ok(PemItem::Certificate(cert)) => certs.push(cert),
+                Ok(_) => {}
+                Err(_) => {
+                    return Err(ConfigError(
+                        "the root certificate bundle is not valid PEM".into(),
+                    ));
+                }
+            }
+        }
+        if certs.is_empty() {
+            return Err(ConfigError(
+                "the root certificate bundle holds no certificate".into(),
+            ));
+        }
+        self.root_certs = Some(RootCerts::from(certs));
+        Ok(())
+    }
+
     pub(crate) fn endpoint(&self, path: &str) -> String {
         format!("{}/{path}", self.base_url)
     }
@@ -173,6 +200,16 @@ macro_rules! shared_builders {
         /// authentication, content type and the Anthropic version header, which cannot be set.
         pub fn with_header(mut self, name: &str, value: &str) -> Result<Self, ConfigError> {
             self.common.add_header(name, value)?;
+            Ok(self)
+        }
+
+        /// Trusts exactly the certificates in `pem` (one or more `CERTIFICATE` blocks) in place
+        /// of the bundled public roots, for an endpoint behind a TLS-intercepting proxy or signed
+        /// by a private CA. Certificate validation stays on; other PEM items are ignored. The host
+        /// reads the bundle (for example from `SSL_CERT_FILE`); this crate never touches the
+        /// filesystem or the environment.
+        pub fn with_root_certificates_pem(mut self, pem: &[u8]) -> Result<Self, ConfigError> {
+            self.common.set_root_certificates(pem)?;
             Ok(self)
         }
     };
@@ -294,6 +331,19 @@ mod tests {
         OpenAiConfig::without_key_on_private_lan(url)
     }
 
+    /// A self-signed P-256 root used only as parse input; nothing here connects with it.
+    const TEST_ROOT: &str = "-----BEGIN CERTIFICATE-----\n\
+MIIBpTCCAUugAwIBAgIUGxuR7UMf4wCGUFknHqHQLWt5m8UwCgYIKoZIzj0EAwIw\n\
+JzElMCMGA1UEAwwcZngtbmF0aXZlLXByb3ZpZGVyIHRlc3Qgcm9vdDAgFw0yNjEw\n\
+MTYyMzMzMDdaGA8yMTI2MDkyMjIzMzMwN1owJzElMCMGA1UEAwwcZngtbmF0aXZl\n\
+LXByb3ZpZGVyIHRlc3Qgcm9vdDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABD/G\n\
+kpsDC8dks62rbWrLyQOKfPkRE8bJO5zo34h/jpjW6+Bk4E0NxvHG+/Pk5XnE0Kl4\n\
+6ZLRPS23H2e67YN8ey+jUzBRMB0GA1UdDgQWBBSGpTf0iUNc8ZX9GGBfjFmYkX+U\n\
+0DAfBgNVHSMEGDAWgBSGpTf0iUNc8ZX9GGBfjFmYkX+U0DAPBgNVHRMBAf8EBTAD\n\
+AQH/MAoGCCqGSM49BAMCA0gAMEUCIQDnh3EtlQ2kBCfUMrFfqiqIhT/VVZFkqUV+\n\
+iZCe/neitgIgb1IFqNXOjw0/7R5oHwzaJiUCaJ+R5Waxy1oxMw8U2LM=\n\
+-----END CERTIFICATE-----\n";
+
     #[test]
     fn plain_http_to_a_non_loopback_host_is_refused_by_default() {
         for url in [
@@ -378,5 +428,49 @@ mod tests {
     fn https_and_loopback_configurations_do_not_become_lan_configurations() {
         let config = lan("http://127.0.0.1:1234/v1").unwrap();
         assert!(config.with_header("X-Title", "t").is_ok());
+    }
+
+    #[test]
+    fn bundled_roots_are_the_default() {
+        let config = OpenAiConfig::without_key("https://openrouter.ai/api/v1").unwrap();
+        assert!(config.common.root_certs.is_none());
+    }
+
+    #[test]
+    fn a_pem_bundle_replaces_the_bundled_roots() {
+        let two = format!("# comment\n{TEST_ROOT}\n{TEST_ROOT}");
+        let config = OpenAiConfig::new("https://ai-gateway.vercel.sh/v1", Secret::new("k"))
+            .unwrap()
+            .with_root_certificates_pem(two.as_bytes())
+            .unwrap();
+        match config.common.root_certs {
+            Some(RootCerts::Specific(certs)) => assert_eq!(certs.len(), 2),
+            other => panic!("expected specific roots, got {other:?}"),
+        }
+        let anthropic = AnthropicConfig::new("https://api.anthropic.com/v1", Secret::new("k"))
+            .unwrap()
+            .with_root_certificates_pem(TEST_ROOT.as_bytes())
+            .unwrap();
+        assert!(anthropic.common.root_certs.is_some());
+    }
+
+    #[test]
+    fn a_bundle_without_a_valid_certificate_is_refused() {
+        let config = OpenAiConfig::without_key("https://openrouter.ai/api/v1").unwrap();
+        let corrupt = TEST_ROOT.replace("MIIB", "M!IB");
+        for pem in [
+            "",
+            "not a certificate",
+            "-----BEGIN PRIVATE KEY-----\n-----END PRIVATE KEY-----\n",
+            corrupt.as_str(),
+        ] {
+            assert!(
+                config
+                    .clone()
+                    .with_root_certificates_pem(pem.as_bytes())
+                    .is_err(),
+                "{pem:?}"
+            );
+        }
     }
 }
