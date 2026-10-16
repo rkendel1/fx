@@ -145,6 +145,42 @@ fn a_requested_output_cap_wins_over_the_hosts_default() {
 }
 
 #[test]
+fn temperature_is_carried_and_above_one_is_refused_before_dispatch() {
+    let server = Server::start(vec![sse(a_reply(&["ok"], "end_turn"))]);
+    let mut r = request();
+    r.options.temperature_milli = Some(0);
+    completion(&run(&server, &r, &mut TestHost::default()));
+    let body: serde_json::Value = serde_json::from_str(&server.recorded()[0].body).unwrap();
+    assert_eq!(body["temperature"], 0.0);
+
+    let refused = Server::start(vec![]);
+    r.options.temperature_milli = Some(1001);
+    let report = run(&refused, &r, &mut TestHost::default());
+    let f = failed(&report);
+    assert_eq!(f.kind, ErrorKind::CapabilityUnavailable);
+    assert_eq!(f.delivery, DeliveryCertainty::DefinitelyUnsent);
+    assert_eq!(refused.connections(), 0);
+}
+
+#[test]
+fn structured_output_is_refused_before_dispatch() {
+    let server = Server::start(vec![]);
+    let mut r = request();
+    r.options.response_format = Some(ResponseFormat {
+        name: "reply".into(),
+        description: String::new(),
+        schema_json: r#"{"type":"object"}"#.into(),
+    });
+    let report = run(&server, &r, &mut TestHost::default());
+    assert_eq!(failed(&report).kind, ErrorKind::CapabilityUnavailable);
+    assert_eq!(
+        failed(&report).delivery,
+        DeliveryCertainty::DefinitelyUnsent
+    );
+    assert_eq!(server.connections(), 0);
+}
+
+#[test]
 fn max_tokens_and_a_refusal_stop_map_to_length_and_content_filter() {
     for (stop, expected) in [
         ("max_tokens", FinishReason::Length),

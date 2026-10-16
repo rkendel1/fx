@@ -17,7 +17,7 @@ Two providers, chosen for the services Chip is actually run against (Anthropic, 
 * `OpenAiCompatible`: an OpenAI-style streaming chat-completions endpoint (`POST {base_url}/chat/completions`). This is the wire format of OpenAI, **OpenRouter** and **LM Studio** (and Ollama's `/v1` endpoint), so one provider with different configuration serves all of them.
 * `Anthropic`: the Messages API (`POST {base_url}/messages`).
 
-Both carry text conversations and an output token cap. Nothing else is claimed. They share one worker, one polling model, one set of delivery rules and one `Wire` seam (`wire.rs`): a provider is only its request, its headers and its stream decoder. Google and native Ollama are not implemented.
+Both carry text conversations, an output token cap and a sampling temperature. The OpenAI-compatible provider also carries a JSON-schema response format (structured output). Nothing else is claimed. They share one worker, one polling model, one set of delivery rules and one `Wire` seam (`wire.rs`): a provider is only its request, its headers and its stream decoder. Google and native Ollama are not implemented.
 
 ### What the provider does not do: choose
 
@@ -65,9 +65,9 @@ Libraries: `ureq` 3 (blocking HTTP) with `rustls` and bundled `webpki-roots`, an
 
 `invoke` validates the request, starts one worker thread, and returns. The worker makes exactly one `POST`, follows no redirects, ignores proxy environment variables, and streams the response into a channel. `poll` waits up to 25 ms on that channel and returns what arrived. There is no retry, no fallback, no routing and no second request; `check-boundaries.sh` enforces a single `.post(` site in the source.
 
-OpenAI-compatible: the body has the model reference, role-tagged text messages, `stream: true`, `stream_options.include_usage: true` and, when the request carries one, `max_tokens`. The credential is only in the `Authorization` header.
+OpenAI-compatible: the body has the model reference, role-tagged text messages, `stream: true`, `stream_options.include_usage: true` and, when the request carries them, `max_tokens`, `temperature` (the contract's thousandths as a JSON number; `0` is sent as `0.0`, never dropped) and `response_format` as `{"type":"json_schema","json_schema":{"name","description","schema","strict":false}}` built from FX's response format. FX has already validated the schema as a JSON object. The credential is only in the `Authorization` header.
 
-Anthropic: the body has the model, user and assistant messages, system text as the top-level `system` field, `stream: true` and `max_tokens`. The API requires `max_tokens`, so when the request does not carry `max_output_tokens` the host's `AnthropicConfig::with_default_max_tokens` value is used (default 4096); it is a visible setting, not a hidden constant. The credential is only in `x-api-key`; `anthropic-version` is `2023-06-01` unless the host sets another.
+Anthropic: the body has the model, user and assistant messages, system text as the top-level `system` field, `stream: true`, `max_tokens` and, when requested, `temperature` (above 1.0 is refused before dispatch because the API rejects it). Structured output is refused before dispatch: the Messages API has no equivalent that this adapter carries. The API requires `max_tokens`, so when the request does not carry `max_output_tokens` the host's `AnthropicConfig::with_default_max_tokens` value is used (default 4096); it is a visible setting, not a hidden constant. The credential is only in `x-api-key`; `anthropic-version` is `2023-06-01` unless the host sets another.
 
 ### Delivery certainty
 
@@ -121,14 +121,14 @@ The host passes `OpenAiConfig::new(base_url, Secret)`. Nothing is read from the 
 | Usage on a stream | supported (when the endpoint sends it) | unverified for OpenAI; not carried for Anthropic |
 | Finish reason on a stream | supported | supported for OpenAI; not carried for Anthropic |
 | Output token cap (`max_output_tokens`) | supported | refused before dispatch |
+| Sampling temperature (`temperature_milli`) | supported (Anthropic up to 1.0) | refused before dispatch |
 | HTTP status and `Retry-After` | supported | supported |
 | Refusal text and `content_filter` finish | supported | finish only |
 | Non-streaming generation | not offered | supported |
 | Tool definitions, tool choice, tool-call history, provider tools | refused before dispatch | refused before dispatch |
 | Images | refused before dispatch | refused before dispatch |
 | Reasoning effort, speed | refused before dispatch | refused before dispatch |
-| Sampling temperature | not in the FX contract; Chip drops or refuses it by policy | not in the FX contract |
-| Structured output | refused before dispatch | refused before dispatch |
+| Structured output (JSON schema) | OpenAI-compatible: supported; Anthropic: refused before dispatch | refused before dispatch |
 | Prompt cache hints | ignored | ignored |
 | Keyless local servers (LM Studio) | supported (`without_key`) | supported |
 | Proxies, custom CA certificates, mTLS | not supported (bundled public roots, no proxy) | uses the Node `fetch` environment |

@@ -129,6 +129,7 @@ pub fn full() -> Request {
         tool_choice: ToolChoice::Named("list_files".to_owned()),
         options: GenerationOptions {
             max_output_tokens: Some(4096),
+            temperature_milli: Some(700),
             reasoning: ReasoningEffort::Named("high".to_owned()),
             speed: Speed::Fast,
             response_format: Some(ResponseFormat {

@@ -138,7 +138,7 @@ The Rust types are normative; the summary below is for orientation:
 | Content | `Part::{Text, Image(ImageData), ToolCall(ToolCallProposal), ToolResult(ToolResult)}` | images are bytes plus `ImageMediaType` (PNG, JPEG, GIF, WebP), never paths or URLs |
 | Tools | `ToolDefinition { name, description, input_schema_json, execution: Client \| Provider, provider_args_json }`; `ToolChoice::{Auto, None, Required, Named}` | |
 | Proposals vs execution | `ToolCallProposal` (model asks; no authority) vs `ProviderToolRecord` (provider reports it ran a provider tool) | invariants 5 and 6 |
-| Options | `GenerationOptions { max_output_tokens, reasoning: ReasoningEffort::{Default, Named}, speed: Speed, response_format }` | reasoning labels are opaque catalog labels (oracle `types.zig:1561`) |
+| Options | `GenerationOptions { max_output_tokens, temperature_milli (thousandths, 0 to 2000, optional), reasoning: ReasoningEffort::{Default, Named}, speed: Speed, response_format }` | reasoning labels are opaque catalog labels (oracle `types.zig:1561`) |
 | Correlation | `Correlation { request_id: RequestId([u8; 16]), affinity_key }` | forwarded, never interpreted |
 | Deadline | `AttemptBudget(Duration)` | a portable duration; the adapter converts it to a host-local deadline. No monotonic instant is ever serialized |
 | Events | `Event::{Metadata, TextDelta, ReasoningDelta, ToolInputStart, ToolInputDelta, ToolInputEnd, ToolCall, ProviderToolRecord, Usage, Finish}` | streamed tool input is display only |

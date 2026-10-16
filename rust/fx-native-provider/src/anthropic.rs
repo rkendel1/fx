@@ -5,7 +5,7 @@ use fx_single_attempt::{PortItem, PortSupport, PortUsage, Terminal};
 use serde_json::{Value, json};
 
 use crate::config::{AnthropicConfig, Common};
-use crate::openai::{check_common, plain_text};
+use crate::openai::{check_common, plain_text, temperature};
 use crate::secret::Secret;
 use crate::wire::{Decoder, Step, Wire};
 
@@ -39,7 +39,10 @@ impl Wire for AnthropicWire {
     }
 
     fn body(&self, request: &Request) -> Result<Vec<u8>, String> {
-        check_common(request)?;
+        check_common(request, false)?;
+        if request.options.temperature_milli.is_some_and(|t| t > 1000) {
+            return Err("Anthropic accepts a temperature of at most 1.0".into());
+        }
         let mut system: Vec<String> = Vec::new();
         let mut messages = Vec::with_capacity(request.messages.len());
         for message in &request.messages {
@@ -65,6 +68,9 @@ impl Wire for AnthropicWire {
                 .max_output_tokens
                 .unwrap_or(self.config.default_max_tokens),
         });
+        if let Some(milli) = request.options.temperature_milli {
+            body["temperature"] = temperature(milli);
+        }
         if !system.is_empty() {
             body["system"] = json!(system.join("\n\n"));
         }
