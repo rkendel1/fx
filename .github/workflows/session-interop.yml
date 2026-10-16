@@ -7,7 +7,10 @@ name: Session interop
 # and a negative control. No credentials and no network model provider: Zig talks to a scripted
 # local gateway and Rust Chip runs a scripted model.
 #
-# CHIP_RS_REF names the chip-rs commit tested against. Pin it to a merged chip-rs commit.
+# CHIP_RS_REF names the chip-rs commit tested against. It is a full commit SHA that is merged
+# into chip-rs main, never a branch or tag name, so a later branch update cannot change the Chip
+# implementation this job tests. The "Check the pin" step enforces that. To move the pin, merge the
+# chip-rs change first and then set this to the merge commit.
 
 on:
   push:
@@ -35,7 +38,8 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  CHIP_RS_REF: claude/magical-volta-0f78co
+  # Merge of rkendel1/chip-rs#22: the first main commit with chip-session and chip-turns.
+  CHIP_RS_REF: 6e8c28c7817ab2724f2739fcbd310f00ffbe29da
 
 jobs:
   interop:
@@ -50,6 +54,21 @@ jobs:
           repository: rkendel1/chip-rs
           ref: ${{ env.CHIP_RS_REF }}
           path: chip-rs
+          fetch-depth: 1
+
+      - name: Check the pin
+        working-directory: chip-rs
+        run: |
+          case "$CHIP_RS_REF" in
+            *[!0-9a-f]*|"") echo "CHIP_RS_REF must be a lowercase hex commit SHA, got: $CHIP_RS_REF" >&2; exit 1 ;;
+          esac
+          test "${#CHIP_RS_REF}" -eq 40 || { echo "CHIP_RS_REF must be a full 40 character SHA" >&2; exit 1; }
+          test "$(git rev-parse HEAD)" = "$CHIP_RS_REF" || { echo "checked out $(git rev-parse HEAD), not the pin" >&2; exit 1; }
+          test -d crates/chip-turns || { echo "the pinned commit has no crates/chip-turns" >&2; exit 1; }
+          # The pin must be merged into chip-rs main (a commit only on a branch can be lost).
+          git fetch --no-tags --filter=blob:none origin main
+          git merge-base --is-ancestor "$CHIP_RS_REF" FETCH_HEAD || { echo "$CHIP_RS_REF is not merged into chip-rs main" >&2; exit 1; }
+          echo "chip-rs pinned at $CHIP_RS_REF (merged into main)"
 
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
