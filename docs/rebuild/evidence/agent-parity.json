@@ -1,6 +1,6 @@
 {
   "corpus": "agent-loop.v1",
-  "corpus_sha256": "20103f7b2e7dcd3bde5f797893d9bc06386bffb460f94d0ddefe093a88fbb792",
+  "corpus_sha256": "52f07c064d4e4d40011d341559cdf1f5011a834736b373d4ac4d5adc33e3fc63",
   "gate": {
     "invalid_scenarios": [],
     "retirement_ready": false,
@@ -678,7 +678,7 @@
       }
     },
     "write_outside_workspace": {
-      "about": "The model asks to write a file outside the workspace (../ and absolute path variants are both observed in the capture notes).",
+      "about": "The model asks to create a new file outside the workspace (a ../ path). Overwriting, editing, deleting and the other mutations were probed separately and are reviewed by Zig; see docs/rebuild/security/ZIG_EXTERNAL_WRITE.md.",
       "requirement": "Unauthorized tool",
       "rust": {
         "answer": null,
@@ -701,7 +701,7 @@
               "outside_write": false,
               "shell_marker": false
             },
-            "why": "OBSERVED: the Zig binary in a fresh HOME with no flags executes write_file outside the workspace (the file appears next to the workspace, status success). Chip refuses the path before any execution. Rust is stricter; Zig's behavior looks like a permission-policy hole and deserves its own security review.",
+            "why": "OBSERVED: the Zig binary in a fresh HOME with no flags executes a write_file that CREATES a new file outside the workspace (status success) with no permission review; overwrite, edit, delete, create_folder, copy and rename of outside paths were routed to the reviewer. Chip refuses the path before any execution. Under security review (docs/rebuild/security/ZIG_EXTERNAL_WRITE.md); Chip's stricter behavior is approved and is kept.",
             "zig": {
               "outside_write": true,
               "shell_marker": false

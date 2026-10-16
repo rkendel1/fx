@@ -132,7 +132,7 @@
     {
       "id": "write_outside_workspace",
       "requirement": "Unauthorized tool",
-      "about": "The model asks to write a file outside the workspace (../ and absolute path variants are both observed in the capture notes).",
+      "about": "The model asks to create a new file outside the workspace (a ../ path). Overwriting, editing, deleting and the other mutations were probed separately and are reviewed by Zig; see docs/rebuild/security/ZIG_EXTERNAL_WRITE.md.",
       "prompt": "write outside",
       "model": [
         {
@@ -146,7 +146,7 @@
       "differences": {
         "side_effects": {
           "class": "intentional_change_requires_approval",
-          "why": "OBSERVED: the Zig binary in a fresh HOME with no flags executes write_file outside the workspace (the file appears next to the workspace, status success). Chip refuses the path before any execution. Rust is stricter; Zig's behavior looks like a permission-policy hole and deserves its own security review."
+          "why": "OBSERVED: the Zig binary in a fresh HOME with no flags executes a write_file that CREATES a new file outside the workspace (status success) with no permission review; overwrite, edit, delete, create_folder, copy and rename of outside paths were routed to the reviewer. Chip refuses the path before any execution. Under security review (docs/rebuild/security/ZIG_EXTERNAL_WRITE.md); Chip's stricter behavior is approved and is kept."
         },
         "tool_executions": {
           "class": "intentional_change_requires_approval",

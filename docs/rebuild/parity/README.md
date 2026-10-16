@@ -34,7 +34,7 @@ Differences, all classified, none approved yet:
 
 * **D1 retries.** On 429, 500, a cut stream, and a 500 after a tool ran, Zig repeats the request and completes; Chip makes one request and surfaces the failure. In `failure_after_tool` the tool ran once on both sides.
 * **D3 fail closed.** An unknown tool or a denied shell command is not executed by either side; Zig tells the model and continues, Chip ends the work as failed.
-* **Zig writes outside the workspace.** With a fresh HOME and no flags, Zig's `write_file` with a `../` path executes (status success) and the file appears outside the workspace. Chip refuses the path before any execution. This looks like a permission-policy hole in Zig and deserves a separate security review.
+* **Zig creates files outside the workspace without review.** With a fresh HOME and no flags, Zig's `write_file` creating a new file at a `../` or absolute path executes (status success) with no reviewer call; overwrite, edit, delete and the other mutations are reviewed. Chip refuses the path before any execution. Under separate security review (`docs/rebuild/security/ZIG_EXTERNAL_WRITE.md`, fx#21); Chip's stricter behavior is approved and kept.
 * **Recovery.** After a kill mid-turn, Zig can resume the paused model response (`--continue-recovery`). Chip drops the uncommitted turn; the user must ask again, and re-running re-executes the capability (nothing is replayed automatically, but there is no idempotence guard). The shipped `chip` binary does not persist turns at all; only the `chip-turns` library and its example driver do.
 * **Persistence failure.** Zig warns and still answers without saving; Chip refuses to run the turn.
 
