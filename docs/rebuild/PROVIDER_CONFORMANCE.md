@@ -4,9 +4,9 @@
 
 Which behaviors does the actual Rust FX execution path demonstrably support for each Easy-LLM provider, and what evidence proves it?
 
-The path is: caller, FX validation, `fx_core::Execution`, `SingleAttemptCapability`, `fx-host` (WebAssembly), the Node host, Easy-LLM `generateOnce` / `streamOnce`, the provider adapter. Each adapter below is the real Easy-LLM adapter at the pinned commit, run unmodified against a local mock of its endpoint. The mocks are reconstructed from what the adapters parse; **nothing here was established against a live provider**, and no live smoke result is recorded.
+The path is: caller, FX validation, `fx_core::Execution`, `SingleAttemptCapability`, `fx-host` (WebAssembly), the Node host, Easy-LLM `generateOnce` / `streamOnce`, the provider adapter. Each adapter below is the real Easy-LLM adapter at the pinned release, run unmodified against a local mock of its endpoint. The mocks are reconstructed from what the adapters parse; **nothing here was established against a live provider**, and no live smoke result is recorded.
 
-- Easy-LLM commit: `336939a037735f79e63a51e47a1da4ba8a349fe2`
+- Easy-LLM release: `@easy-llm/llm@0.10.2` (published to npm)
 - Manifest: `host/node/conformance/manifest.json` (version 1.0.0), checked against the results by `npm run conformance`
 - Cases: 34 cases, 167 provider runs (`host/node/conformance/cases.mjs`)
 

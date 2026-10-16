@@ -104,8 +104,8 @@ describe("capability manifest", () => {
     assert.ok(problemsAfter((m) => (m.providers.openai.live = "verified")).some((p) => p.includes("live must be")));
   });
 
-  test("is about the Easy-LLM commit that is installed from", () => {
-    assert.ok(problemsAfter((m) => (m.easy_llm.ref = "0".repeat(40))).some((p) => p.includes("package.json pins")));
+  test("is about the Easy-LLM release that is installed", () => {
+    assert.ok(problemsAfter((m) => (m.easy_llm.version = "0.0.1")).some((p) => p.includes("package.json pins")));
   });
 });
 

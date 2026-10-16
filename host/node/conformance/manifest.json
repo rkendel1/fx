@@ -4,7 +4,7 @@
   "description": "What the Rust FX execution path demonstrably supports for each Easy-LLM provider adapter. Descriptive evidence derived from conformance/ results, not a runtime contract: FX request validation, SingleAttemptCapability and the executor stay authoritative.",
   "easy_llm": {
     "package": "@easy-llm/llm",
-    "ref": "336939a037735f79e63a51e47a1da4ba8a349fe2"
+    "version": "0.10.2"
   },
   "evidence": {
     "kind": "mock-server",

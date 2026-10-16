@@ -178,7 +178,7 @@ Outcomes do not differ: no fixture is restricted to one target, and all 26 run o
 
 ```bash
 cd host/node
-npm ci                       # installs Easy-LLM from a pinned git ref
+npm ci                       # installs the pinned Easy-LLM release from npm
 npm run build:wasm
 npm test                     # offline: bridge, fixtures, real-adapter and provider conformance tests
 npm run conformance:check    # provider conformance, manifest and generated document
@@ -195,7 +195,7 @@ FX_LIVE_SMOKE=1 OPENAI_API_KEY=... FX_LIVE_MODEL=... npm run example:live
 
 R4 made the path work and testable and R5 made provider support evidence-based; neither is the R6 readiness review. Open items:
 
-- The Easy-LLM dependency is a pinned git commit on the merged `main` of rkendel1/llm (`336939a`, which includes #13 and #14) because the published `0.10.1` predates `generateOnce`. Switch to the registry when a release includes it.
+- The Easy-LLM dependency is the published release `@easy-llm/llm@0.10.2`, pinned exactly (it includes `generateOnce` / `streamOnce`, #13 and #14). The earlier plan to use a git ref is gone.
 - All five adapters have run end to end, but only against local mocks of their wire formats. No live provider run is part of CI, and none is recorded.
 - Tool-using requests cannot run until the provider layer carries tool schemas and tool-call history.
 - No fuzzing of the ABI, no performance measurement, no load or memory-ceiling testing of the module.

@@ -20,7 +20,7 @@
     "conformance:check": "node scripts/conformance.mjs --repeat 2 --check-doc ../../docs/rebuild/PROVIDER_CONFORMANCE.md"
   },
   "devDependencies": {
-    "@easy-llm/llm": "git+https://github.com/rkendel1/llm.git#336939a037735f79e63a51e47a1da4ba8a349fe2",
+    "@easy-llm/llm": "0.10.2",
     "@types/node": "22.15.3",
     "typescript": "5.9.3"
   }

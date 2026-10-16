@@ -61,16 +61,13 @@ export const FEATURE_TEXT = Object.freeze(
  * @typedef {import("./suite.mjs").CaseResult} CaseResult
  * @typedef {{ status: string, note?: string }} FeatureEntry
  * @typedef {{ adapter: string, live: string, features: Record<string, FeatureEntry> }} ProviderEntry
- * @typedef {{ schema: number, manifest_version: string, easy_llm: { package: string, ref: string }, evidence: { kind: string, note: string }, providers: Record<string, ProviderEntry> }} Manifest
+ * @typedef {{ schema: number, manifest_version: string, easy_llm: { package: string, version: string }, evidence: { kind: string, note: string }, providers: Record<string, ProviderEntry> }} Manifest
  */
 
 /** @param {string | URL} [path] @returns {Manifest} */
 export function loadManifest(path = new URL("./manifest.json", import.meta.url)) {
   return JSON.parse(readFileSync(path, "utf8"));
 }
-
-/** The commit ref after `#` in a dependency spec. @param {string} spec */
-const refOf = (spec) => spec.split("#")[1] ?? "";
 
 /**
  * The cases (for one provider) that provide evidence for a feature.
@@ -138,13 +135,17 @@ export function verifyManifest(manifest, results, options = {}) {
     }
   }
 
-  // The manifest names the Easy-LLM commit its results are about; it must be the one installed from.
+  // The manifest names the Easy-LLM release its results are about; it must be the one installed.
+  // A published release, pinned exactly: no git ref, no range, no unmerged branch.
   const packageJson = JSON.parse(readFileSync(options.packageJson ?? new URL("../package.json", import.meta.url), "utf8"));
-  const wanted = refOf(String(packageJson.devDependencies?.["@easy-llm/llm"] ?? ""));
-  if (wanted === "" || !/^[0-9a-f]{40}$/.test(wanted)) problems.push("package.json must pin @easy-llm/llm to a full commit hash");
-  else if (manifest.easy_llm?.ref !== wanted) problems.push(`manifest is about Easy-LLM ${manifest.easy_llm?.ref}, package.json pins ${wanted}`);
+  const wanted = String(packageJson.devDependencies?.["@easy-llm/llm"] ?? "");
+  if (!/^\d+\.\d+\.\d+$/.test(wanted)) problems.push(`package.json must pin @easy-llm/llm to an exact published version, not "${wanted}"`);
+  else if (manifest.easy_llm?.version !== wanted) problems.push(`manifest is about Easy-LLM ${manifest.easy_llm?.version}, package.json pins ${wanted}`);
   const lock = JSON.parse(readFileSync(options.lockfile ?? new URL("../package-lock.json", import.meta.url), "utf8"));
-  const locked = refOf(String(lock.packages?.["node_modules/@easy-llm/llm"]?.resolved ?? ""));
-  if (locked !== wanted) problems.push(`package-lock.json resolves @easy-llm/llm to ${locked || "nothing"}, package.json pins ${wanted}`);
+  const locked = lock.packages?.["node_modules/@easy-llm/llm"];
+  if (locked?.version !== wanted) problems.push(`package-lock.json has @easy-llm/llm ${locked?.version ?? "nothing"}, package.json pins ${wanted}`);
+  else if (!String(locked.resolved ?? "").startsWith("https://registry.npmjs.org/") || !String(locked.integrity ?? "").startsWith("sha512-")) {
+    problems.push("package-lock.json must resolve @easy-llm/llm from the npm registry with an integrity hash");
+  }
   return problems;
 }

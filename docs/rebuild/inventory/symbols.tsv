@@ -249,7 +249,7 @@ sdk/node/test-term-workspace.mjs	222	grid	fn	module	33	benchmarks/approval_revie
 sdk/node/test-term-workspace.mjs	229	waitFor	fn	module	ambiguous		no	EMB-TERM	fx-shell	MOVE	rule	async function waitFor(predicate, label) {
 sdk/node/test-term-workspace.mjs	237	prompt	fn	module	ambiguous		no	EMB-TERM	fx-shell	MOVE	rule	async function prompt(value, expected) {
 sdk/scripts/package-term-demo.mjs	22	digest	fn	module	11	benchmarks/approval_review_tty.ts,tests/e2e/mcp-auth.test.ts,tests/e2e/render-lab/evidence.ts	no	EMB-TERM	fx-shell	REMOVE	rule	const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
-sdk/scripts/package-term-demo.mjs	23	integrity	fn	module	3	host/node/test/bridge.test.mjs,sdk/term-demo.html,tests/e2e/tui-gateway-stream-lifecycle.test.ts	no	EMB-TERM	fx-shell	REMOVE	rule	const integrity = (bytes) => `sha256-${createHash("sha256").update(bytes).digest("base64")}`;
+sdk/scripts/package-term-demo.mjs	23	integrity	fn	module	4	host/node/conformance/manifest.mjs,host/node/test/bridge.test.mjs,sdk/term-demo.html	no	EMB-TERM	fx-shell	REMOVE	rule	const integrity = (bytes) => `sha256-${createHash("sha256").update(bytes).digest("base64")}`;
 src/acp/jsonrpc.zig	7	writeJsonStr	fn	pub	5	src/acp/prompt.zig,src/acp/server.zig,src/acp/sessions.zig	yes	EMB-ACP	Chip	MOVE	rule	pub fn writeJsonStr(s: []const u8, w: *std.Io.Writer) !void {
 src/acp/jsonrpc.zig	30	ErrorCode	struct	pub	3	src/acp/prompt.zig,src/acp/server.zig,src/acp/sessions.zig	yes	EMB-ACP	Chip	MOVE	rule	pub const ErrorCode = struct {
 src/acp/jsonrpc.zig	31	ErrorCode.request_frame_too_large	const	pub	1	src/acp/server.zig	no	EMB-ACP	Chip	MOVE	rule	pub const request_frame_too_large: i64 = -32000;

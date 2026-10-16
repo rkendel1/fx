@@ -103,7 +103,7 @@ flowchart LR
 - `host/node/conformance`: a mock server that speaks the wire format of all five Easy-LLM adapters (OpenAI, OpenRouter, Anthropic, Google, Ollama), and 34 cases that run the real, unmodified adapters through the real Rust executor (WebAssembly). 167 provider runs, deterministic and offline, plus universal invariants checked on every attempt.
 - A versioned capability manifest (`conformance/manifest.json`): sixteen features per provider, each `supported`, `unsupported` or `unverified`. `npm run conformance` fails if a status is not backed by the results (for example `supported` without a passing case), if the suite is not deterministic, or if the generated document is stale.
 - A correction found by the suite: a collected (non-streaming) response with no finish reason, including a body that parses but is not a response, was reported as a completion with finish `other`. It is now an interrupted attempt, the same rule as a stream (`host/node/src/translate.js`).
-- The Easy-LLM dependency is pinned to the merged commit of rkendel1/llm#14 (`336939a`), not a branch.
+- The Easy-LLM dependency is the published `@easy-llm/llm@0.10.2`, pinned exactly (no git ref, no branch); the npm release contains the single-attempt API.
 - CI: the conformance lane in `host-bridge.yml` on Node 22 and 24 (Linux) and 22 (macOS).
 
 **Not delivered, by design**
