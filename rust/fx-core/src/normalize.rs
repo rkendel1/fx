@@ -149,8 +149,9 @@ struct StreamedInput {
 
 /// Step-driven event normalizer for one attempt.
 #[derive(Debug)]
-pub struct Normalizer<'r> {
-    request: &'r Request,
+pub struct Normalizer {
+    /// Names of the provider-executed tools the request declared.
+    provider_tools: Vec<String>,
     limits: Limits,
     finished: Option<FinishReason>,
     delivery: DeliveryCertainty,
@@ -169,11 +170,16 @@ pub struct Normalizer<'r> {
     metadata: Metadata,
 }
 
-impl<'r> Normalizer<'r> {
+impl Normalizer {
     /// Creates a normalizer for an already validated request.
-    pub fn new(request: &'r Request, limits: &Limits) -> Self {
+    pub fn new(request: &Request, limits: &Limits) -> Self {
         Normalizer {
-            request,
+            provider_tools: request
+                .tools
+                .iter()
+                .filter(|t| t.execution == ToolExecution::Provider)
+                .map(|t| t.name.clone())
+                .collect(),
             limits: *limits,
             finished: None,
             delivery: DeliveryCertainty::DefinitelyUnsent,
@@ -317,11 +323,7 @@ impl<'r> Normalizer<'r> {
                 Ok(Pushed::Forward(Event::ToolCall(normalized)))
             }
             Event::ProviderToolRecord(record) => {
-                let declared = self
-                    .request
-                    .tools
-                    .iter()
-                    .any(|t| t.name == record.name && t.execution == ToolExecution::Provider);
+                let declared = self.provider_tools.contains(&record.name);
                 if !declared {
                     return Err(Violation::ProviderRecordForUndeclaredTool);
                 }

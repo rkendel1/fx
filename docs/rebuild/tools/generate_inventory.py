@@ -327,8 +327,8 @@ AUDIT_BY_CAPABILITY = (
 
 def review_status(capability: str, path: str = "") -> str:
     """Names the audit note whose pass covered this file's area."""
-    if path.startswith("rust/") or path == "rust-toolchain.toml" or path.endswith("rust-core.yml"):
-        return "BEHAVIOR_MATRIX.md §8-10 (R1 contract, R2 executor and R3 adapter tests)"
+    if path.startswith(("rust/", "host/")) or path == "rust-toolchain.toml" or path.endswith(("rust-core.yml", "host-bridge.yml")):
+        return "BEHAVIOR_MATRIX.md §8-11 (R1 contract, R2 executor, R3 adapter and R4 bridge tests)"
     for prefix, doc in AUDIT_BY_CAPABILITY:
         if capability.startswith(prefix):
             return doc

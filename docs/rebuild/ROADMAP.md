@@ -59,15 +59,15 @@ flowchart LR
 
 **Exit:** deterministic native conformance with no network, credentials or provider dependency.
 
-## R3: Single-attempt provider capability (this PR)
+## R3: Single-attempt provider capability (done)
 
 **Delivered here**
 - `rust/fx-single-attempt`: a separate crate (its only dependency is `fx-core`, so `fx-core`'s allowlist does not grow) with the `ProviderPort` trait, the `SingleAttemptCapability` adapter that implements `fx_core::Capability` over it, the mapping rules, a scripted `FakePort`, 31 offline tests that run the real executor over it, its own `check-boundaries.sh`, and a CI job in `rust-core.yml`.
 - [SINGLE_ATTEMPT.md](SINGLE_ATTEMPT.md): the audit of direct provider invocation versus the routed path, what FX needs from the provider layer, the mapping, and the gaps with the smallest change for each.
 
-**Not delivered here**
-- The provider-side operation itself (`generateOnce` / `streamOnce`) is in `rkendel1/llm`, proposed in draft PR rkendel1/llm#13. It is not part of this repository and is not merged.
-- The Node and WASM bridge that implements `ProviderPort` over it (R4).
+**Delivered in `rkendel1/llm`:** the provider-side operation (`generateOnce` / `streamOnce`, rkendel1/llm#13, merged). R4 added HTTP status, `Retry-After` and OpenAI-style stream finish reasons there (rkendel1/llm#14).
+
+**Not delivered in R3:** the host that implements `ProviderPort` over it (R4).
 
 **Original scope, still open**
 - A lower-level **single-attempt** API in `rkendel1/llm` that exposes the events and terminal semantics FX needs without model fallback or duplicated routing policy. FX does not call the high-level `llm()` function.
@@ -78,17 +78,23 @@ flowchart LR
 
 **Exit:** no compile-time provider choice and no provider implementation inside the FX core.
 
-## R4: Node and WASM adapters
+## R4: Host bridge for real providers (this PR)
 
-**Scope**
-- N-API: `createInference`/`execute`, host-provided capability first (OD-3), thread-safe notification instead of 2 ms polling, type-tagged handles, slot cap, exactly-once destroy, stable `LIBFX_*` errors.
-- WASM: a `wasm32-unknown-unknown` reactor ABI with no WASI and no JSPI (OD-5), an import allowlist check, and ABI fuzzing.
-- Reuse the R1 and R2 fixtures. Require identical normalized outcomes across native, N-API and WASM (BM-12, BM-14, BM-16).
-- A new `libfx` major version. The ACP agent API moves to the consumer package (R-1).
+**Delivered here** (details and limits in [HOST_BRIDGE.md](HOST_BRIDGE.md))
+- `fx_core::Execution`: the executor as a resumable state machine (`step`, `cancel`); `execute` is a loop over it. `fx_core::encode_report`: the JSON encoding of an `ExecutionReport` (deferred from R2).
+- `rust/fx-host`: the safe, portable `Session` (a message protocol over `fx-core` and `fx-single-attempt`) and the WebAssembly ABI, which imports nothing and holds the only raw-pointer code, compiled for `wasm32` only. Its own boundary gate.
+- `host/node`: the Node host. One entry point (`createFxRuntime().execute`) runs an FX request through the Rust executor against an explicit Easy-LLM provider via `generateOnce` / `streamOnce`. Type check, lint, 71 offline tests (26 shared conformance fixtures run natively and on WebAssembly with identical responses, an end-to-end suite over mock providers, and a suite that drives the real OpenAI adapter against a local mock endpoint), a runnable example and an optional live smoke test.
+- CI: `host-bridge.yml` (Rust host on Linux and macOS; Node host on Node 22 and 24, and 22 on macOS).
+- Companion change in `rkendel1/llm` (#14): HTTP status, `Retry-After` and stream finish reasons, so a real stream completes and an error keeps the facts the provider sent.
 
-**Dependencies:** R2 (R3 is not required: adapters run against the fake and host capabilities).
+**Deviation from the original R4 scope**
+- Node is served by the WebAssembly module, not an N-API addon. The brief asked for no new binding technology without need, the WebAssembly module is required anyway, and one code path serves Node and any other WebAssembly host. N-API stays an option if a measured need appears (OD-3 remains open for that case).
+- The ABI is a message protocol (`fx_begin` / `fx_command`), not the `fx_create` / `fx_push_event` / `fx_poll` sketch in RUST_PRIMITIVES §10 (OD-5 is satisfied: no WASI, no JSPI, no imports).
+- ABI fuzzing, a performance measurement and a browser host are not done (see HOST_BRIDGE.md "Not production ready").
 
-**Exit:** equivalent outcomes for every applicable fixture on every runtime.
+**Dependencies:** R2, R3.
+
+**Exit:** equivalent outcomes for every applicable fixture on native and WebAssembly (met for the 26 host fixtures); a real Easy-LLM adapter returns a normalized FX outcome (met against a local mock; no live provider in CI).
 
 ## R5: Consumer migration and legacy removal
 

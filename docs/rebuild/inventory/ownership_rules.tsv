@@ -178,5 +178,8 @@ sdk/tests/test-term-login.mjs	PRV-AUTH	Easy-LLM	REMOVE	browser Vercel device log
 sdk/tests/test-core-browser.mjs	EMB-SDK	FX	REBUILD	
 rust/fx-core/	INF-CONTRACT	FX	KEEP	normative Rust contract and executor crate (R1, R2); OD-9
 rust/fx-single-attempt/	INF-CONTRACT	FX	KEEP	single-attempt provider capability adapter (R3); OD-9
+rust/fx-host/	EMB-HOST	FX	KEEP	host session and WebAssembly ABI (R4); OD-5, OD-9
+host/	EMB-HOST	FX	KEEP	Node host over Easy-LLM providers (R4); OD-5
 rust-toolchain.toml	OPS-BUILD	FX	KEEP	pinned Rust toolchain for rust/fx-core
 .github/workflows/rust-core.yml	OPS-CI	repo	KEEP	Rust core gates: fmt, clippy, test, native and wasm32 builds, boundary check
+.github/workflows/host-bridge.yml	OPS-CI	repo	KEEP	Host bridge gates: Rust host, Node host type check, lint, WebAssembly and native conformance, mock-provider tests
