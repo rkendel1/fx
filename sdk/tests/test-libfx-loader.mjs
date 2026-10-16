@@ -9,6 +9,7 @@ import {
   createFxTerminal,
   fxSdkApiVersion,
   libfxApiVersion,
+  supportsJspi,
 } from "../node.js";
 import * as browser from "../browser.js";
 
@@ -48,11 +49,21 @@ const terminal = await createFxTerminal({ nativeAddon: nativeUrl, marker: 2 });
 assert.equal(terminal.backend, "native-terminal");
 assert.equal(terminal.options.marker, 2);
 
-await assert.rejects(
-  createFxAgent({ nativeAddon: nativeUrl, backend: "wasm" }),
-  (error) => error?.code === "LIBFX_JSPI_REQUIRED" &&
-    error.message.includes("--experimental-wasm-jspi"),
-);
+// The wasm backend needs JSPI. Without it the loader must say so; with it (Node 24 ships JSPI) the
+// loader goes on to read the core wasm, which this job does not build, so it fails reading the file.
+// Either way the request is refused explicitly and never answered by another backend.
+if (supportsJspi()) {
+  await assert.rejects(
+    createFxAgent({ nativeAddon: nativeUrl, backend: "wasm" }),
+    (error) => error?.code === "ENOENT" && String(error.path).endsWith("fx-core.wasm"),
+  );
+} else {
+  await assert.rejects(
+    createFxAgent({ nativeAddon: nativeUrl, backend: "wasm" }),
+    (error) => error?.code === "LIBFX_JSPI_REQUIRED" &&
+      error.message.includes("--experimental-wasm-jspi"),
+  );
+}
 
 const coreOnlyPath = resolve(dir, "core-only.mjs");
 await writeFile(coreOnlyPath, `
