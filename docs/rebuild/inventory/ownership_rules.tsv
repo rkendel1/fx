@@ -185,3 +185,4 @@ rust-toolchain.toml	OPS-BUILD	FX	KEEP	pinned Rust toolchain for rust/fx-core
 .github/workflows/rust-core.yml	OPS-CI	repo	KEEP	Rust core gates: fmt, clippy, test, native and wasm32 builds, boundary check
 .github/workflows/host-bridge.yml	OPS-CI	repo	KEEP	Host bridge gates: Rust host, Node host type check, lint, WebAssembly and native conformance, mock-provider tests, provider conformance suite
 .github/workflows/unified-runtime.yml	OPS-CI	repo	KEEP	Chip over FX gates: retirement checks, Chip and FX wasm builds, integrated tests, Zig parity, offline example
+.github/workflows/session-interop.yml	OPS-CI	repo	KEEP	Zig and Rust Chip interoperability over the shared session store (real binary, scripted model and gateway)

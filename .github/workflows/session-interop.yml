@@ -1,0 +1,75 @@
+name: Session interop
+
+# The Zig fx and Rust Chip share one durable session store. This builds the real Zig binary and
+# the two Rust drivers (rkendel1/chip-rs: session_tool, turn_tool) and makes the two implementations
+# take turns on the same session directories: Zig creates and Rust persists a real turn; Rust
+# creates and Zig resumes; crashes at every commit boundary; malformed and unsupported events;
+# and a negative control. No credentials and no network model provider: Zig talks to a scripted
+# local gateway and Rust Chip runs a scripted model.
+#
+# CHIP_RS_REF names the chip-rs commit tested against. Pin it to a merged chip-rs commit.
+
+on:
+  push:
+    paths:
+      - "src/core/session/**"
+      - "docs/rebuild/tools/verify_session_interop.py"
+      - "docs/rebuild/tools/verify_rust_session_resume.py"
+      - "docs/rebuild/tools/scripted_gateway.py"
+      - ".github/workflows/session-interop.yml"
+  pull_request:
+    paths:
+      - "src/core/session/**"
+      - "docs/rebuild/tools/verify_session_interop.py"
+      - "docs/rebuild/tools/verify_rust_session_resume.py"
+      - "docs/rebuild/tools/scripted_gateway.py"
+      - ".github/workflows/session-interop.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: session-interop-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CHIP_RS_REF: claude/magical-volta-0f78co
+
+jobs:
+  interop:
+    name: Zig and Rust on one session store
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: rkendel1/chip-rs
+          ref: ${{ env.CHIP_RS_REF }}
+          path: chip-rs
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: "0.16.0"
+
+      - name: Build the Zig binary
+        run: zig build -Doptimize=ReleaseSafe
+
+      - name: Build the Rust drivers
+        working-directory: chip-rs
+        run: cargo build --locked -p chip-session --example session_tool -p chip-turns --example turn_tool
+
+      - name: Zig creates, Rust appends, Zig resumes (and the reverse)
+        run: |
+          python3 docs/rebuild/tools/verify_rust_session_resume.py \
+            --session-tool chip-rs/target/debug/examples/session_tool
+
+      - name: Rust Chip turns over the Zig session store
+        run: |
+          python3 docs/rebuild/tools/verify_session_interop.py \
+            --session-tool chip-rs/target/debug/examples/session_tool \
+            --turn-tool chip-rs/target/debug/examples/turn_tool
