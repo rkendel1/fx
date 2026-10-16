@@ -52,6 +52,19 @@ def main() -> int:
             if http:
                 errors.append(f"{name} has an HTTP client dependency: {sorted(http)}")
 
+    zig = cfg.get("zig_free_rust")
+    if zig:
+        for m in manifests + list((ROOT / "rust").glob("*/build.rs")):
+            if re.search(zig["forbidden_in_manifests"], m.read_text(), re.IGNORECASE):
+                errors.append(f"{m.relative_to(ROOT)} mentions Zig; Rust must not build or load Zig outputs")
+        for rs in (ROOT / "rust").rglob("*.rs"):
+            if "target" in rs.parts:
+                continue
+            text = rs.read_text(errors="ignore")
+            for word in zig["forbidden_in_sources"]:
+                if word in text:
+                    errors.append(f"{rs.relative_to(ROOT)} references {word!r}; Rust must not depend on Zig outputs")
+
     executors = [m.parent.name for m in manifests
                  if re.search(r"pub fn execute\b", "".join(p.read_text() for p in (m.parent / "src").rglob("*.rs")))]
     if executors != [cfg["single_executor"]["crate"].split("/")[1]]:
