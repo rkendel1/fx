@@ -38,6 +38,19 @@ Differences, all classified, none approved yet:
 * **Recovery.** After a kill mid-turn, Zig can resume the paused model response (`--continue-recovery`). Chip drops the uncommitted turn; the user must ask again, and re-running re-executes the capability (nothing is replayed automatically, but there is no idempotence guard). The shipped `chip` binary does not persist turns at all; only the `chip-turns` library and its example driver do.
 * **Persistence failure.** Zig warns and still answers without saving; Chip refuses to run the turn.
 
+## Approvals
+
+Only reviewed differences are approved (`approvals` and `approval_record` in the corpus). Approved on 2026-10-16 by the repository owner: Chip fails closed on an unauthorized tool; Chip makes one attempt and surfaces provider failure (no implicit retry); Chip refuses writes outside the workspace; Chip refuses to run a turn when required persistence fails. These approve the *intended behavior*, not the absence of bugs. **Deliberately not approved:** `recovery_after_kill.resumes_the_interrupted_model_response` and `recovery_after_kill.side_effects_replayed_on_rerun`; crash recovery, replay of side effects and post-execution publication failure are safety questions, not cosmetic differences.
+
+## Unsupported behaviors by release impact
+
+| Category | Behaviors | What it needs |
+| --- | --- | --- |
+| `safety_correctness` | cancel between tool and next request; publication failure after the work ran; interactive permission prompts; no idempotence guard after a crash | an explicit design decision each, before the Zig loop can retire |
+| `core_runtime` | provider-native/parallel tool calls; silent-tool continuation; pause/continue at the step limit | a clear supported or unsupported contract; not necessarily an implementation |
+| `product_surfaces` | images; subagents, MCP, skills, memory, web | a supported/unsupported contract for the first Rust release |
+| `compatibility` | permission modes | may not be needed for the first Rust release |
+
 ## Not covered (and so not claimed)
 
 `unsupported_behaviors` lists what this corpus does not exercise or Rust does not implement: permission modes, provider-native and parallel tool calls, silent-tool continuation, pause/continue at the step limit, images, subagents/MCP/skills/memory/web, interactive approval, cancellation between a tool result and the next request, and a publish failure *after* the work ran. A passing run over this corpus is **not** a claim that the loop is ready to retire.

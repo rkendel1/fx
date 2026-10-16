@@ -398,6 +398,7 @@ def gate(corpus: dict, results: dict) -> dict:
         "invalid_scenarios": unclassified,
         "unapproved_differences": open_items,
         "unsupported_behaviors": blockers,
+        "unsupported_by_category": {c: sorted(b["id"] for b in corpus["unsupported_behaviors"] if b["category"] == c) for c in sorted(corpus["categories"])},
         "retirement_ready": not unclassified and not open_items and not blockers,
     }
 
@@ -459,6 +460,12 @@ def cmd_check(args) -> int:
             continue
         if judge(by_id[sid], r["zig"], r["rust"]) != r["verdict"]:
             errors.append(f"{sid}: the stored verdict does not follow from the stored observations")
+    declared = {f"{sc['id']}.{f}" for sc in corpus["scenarios"] for f in sc.get("differences", {})}
+    for key, value in corpus["approvals"].items():
+        if key not in declared:
+            errors.append(f"approval {key!r} names no declared difference")
+        if value != "approved":
+            errors.append(f"approval {key!r} must be exactly 'approved'")
     fresh = gate(corpus, results)
     if fresh != results.get("gate"):
         errors.append("the stored gate does not follow from the stored scenarios")

@@ -1,76 +1,11 @@
 {
   "corpus": "agent-loop.v1",
-  "corpus_sha256": "3b838e65e24b864ee63aeb8b5eaecf8db241c6b33f1698bb23a8df3927d1199d",
+  "corpus_sha256": "20103f7b2e7dcd3bde5f797893d9bc06386bffb460f94d0ddefe093a88fbb792",
   "gate": {
     "invalid_scenarios": [],
     "retirement_ready": false,
     "run_is_valid": true,
     "unapproved_differences": [
-      {
-        "class": "intentional_change_requires_approval",
-        "field": "terminal",
-        "scenario": "cut_stream"
-      },
-      {
-        "class": "intentional_change_requires_approval",
-        "field": "inference_requests",
-        "scenario": "cut_stream"
-      },
-      {
-        "class": "intentional_change_requires_approval",
-        "field": "answer",
-        "scenario": "cut_stream"
-      },
-      {
-        "class": "intentional_change_requires_approval",
-        "field": "terminal",
-        "scenario": "failure_after_tool"
-      },
-      {
-        "class": "intentional_change_requires_approval",
-        "field": "inference_requests",
-        "scenario": "failure_after_tool"
-      },
-      {
-        "class": "intentional_change_requires_approval",
-        "field": "answer",
-        "scenario": "failure_after_tool"
-      },
-      {
-        "class": "intentional_change_requires_approval",
-        "field": "terminal",
-        "scenario": "http_429"
-      },
-      {
-        "class": "intentional_change_requires_approval",
-        "field": "inference_requests",
-        "scenario": "http_429"
-      },
-      {
-        "class": "intentional_change_requires_approval",
-        "field": "answer",
-        "scenario": "http_429"
-      },
-      {
-        "class": "intentional_change_requires_approval",
-        "field": "terminal",
-        "scenario": "http_500"
-      },
-      {
-        "class": "intentional_change_requires_approval",
-        "field": "inference_requests",
-        "scenario": "http_500"
-      },
-      {
-        "class": "intentional_change_requires_approval",
-        "field": "answer",
-        "scenario": "http_500"
-      },
-      {
-        "class": "intentional_change_requires_approval",
-        "field": "answers_without_saving",
-        "scenario": "persistence_failure"
-      },
       {
         "class": "unsupported",
         "field": "resumes_the_interrupted_model_response",
@@ -80,41 +15,6 @@
         "class": "limitation",
         "field": "side_effects_replayed_on_rerun",
         "scenario": "recovery_after_kill"
-      },
-      {
-        "class": "intentional_change_requires_approval",
-        "field": "terminal",
-        "scenario": "shell_not_executed"
-      },
-      {
-        "class": "intentional_change_requires_approval",
-        "field": "terminal",
-        "scenario": "unknown_tool"
-      },
-      {
-        "class": "intentional_change_requires_approval",
-        "field": "inference_requests",
-        "scenario": "unknown_tool"
-      },
-      {
-        "class": "intentional_change_requires_approval",
-        "field": "side_effects",
-        "scenario": "write_outside_workspace"
-      },
-      {
-        "class": "intentional_change_requires_approval",
-        "field": "tool_executions",
-        "scenario": "write_outside_workspace"
-      },
-      {
-        "class": "intentional_change_requires_approval",
-        "field": "terminal",
-        "scenario": "write_outside_workspace"
-      },
-      {
-        "class": "intentional_change_requires_approval",
-        "field": "inference_requests",
-        "scenario": "write_outside_workspace"
       }
     ],
     "unsupported_behaviors": [
@@ -126,8 +26,29 @@
       "subagents_mcp_skills_memory",
       "interactive_permission_prompts",
       "cancel_after_tool",
-      "persistence_failure_after_work_ran"
-    ]
+      "persistence_failure_after_work_ran",
+      "duplicate_side_effects_guard"
+    ],
+    "unsupported_by_category": {
+      "compatibility": [
+        "permission_modes"
+      ],
+      "core_runtime": [
+        "provider_native_tool_loop",
+        "silent_tool_continuation",
+        "step_limit_pause"
+      ],
+      "product_surfaces": [
+        "images_and_vision",
+        "subagents_mcp_skills_memory"
+      ],
+      "safety_correctness": [
+        "cancel_after_tool",
+        "duplicate_side_effects_guard",
+        "interactive_permission_prompts",
+        "persistence_failure_after_work_ran"
+      ]
+    }
   },
   "scenarios": {
     "basic_turn": {
@@ -835,7 +756,7 @@
   "tools": {
     "chip": "chip 0.1.0",
     "chip_rs_ref": "17a261ada6d89d887e29a52a07eec573baee255f",
-    "chip_sha256": "8b9bbed7faccd00f5420f83e62f571ed1fa2d1276bef961597dfe4eabf47b206",
+    "chip_sha256": "3d3670f2fd956ceac4944499dc290cde3f9a7f616213231ff608622837134ce9",
     "python": "3.13.16",
     "zig_fx": "0.0.4",
     "zig_fx_sha256": "253effa87890fd4fe2afe98004566d7d85a1f22552864d2dfaaa088bd20d59a9"
