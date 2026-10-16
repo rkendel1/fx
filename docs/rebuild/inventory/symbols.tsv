@@ -146,7 +146,7 @@ sdk/browser.js	20	createFxTerminal	fn	export	15	sdk/browser-test-terminal.html,s
 sdk/fx-sdk.js	9	validWorkspacePath	fn	module	0		no	EMB-SDK	FX	REBUILD	rule	function validWorkspacePath(path) {
 sdk/fx-sdk.js	17	prepareWorkspaceAdapter	fn	module	0		no	EXE-WORKSPACE	Compute	MOVE	override	function prepareWorkspaceAdapter(workspace) {
 sdk/fx-sdk.js	46	utf8Prefix	fn	module	0		no	EMB-SDK	FX	REBUILD	rule	function utf8Prefix(value, limit) {
-sdk/fx-sdk.js	55	supportsJspi	fn	export	19	sdk/browser-test-terminal.html,sdk/browser.js,sdk/index.html	no	EMB-SDK	FX	INVESTIGATE	override	export function supportsJspi() {
+sdk/fx-sdk.js	55	supportsJspi	fn	export	20	sdk/browser-test-terminal.html,sdk/browser.js,sdk/index.html	no	EMB-SDK	FX	INVESTIGATE	override	export function supportsJspi() {
 sdk/fx-sdk.js	60	encodeXtermKeyEvent	fn	export	3	sdk/browser.js,sdk/node.js,sdk/node/test-xterm-adapter.mjs	no	EMB-TERM	fx-shell	MOVE	override	export function encodeXtermKeyEvent(event) {
 sdk/fx-sdk.js	72	xtermAdapter	fn	export	11	sdk/browser.js,sdk/node.js,sdk/node/test-term-config-restore.mjs	no	EMB-TERM	fx-shell	MOVE	override	export function xtermAdapter(term) {
 sdk/fx-sdk.js	95	createMemorySessionStore	fn	module	0		no	AGT-SESSION	Chip	MOVE	override	function createMemorySessionStore() {

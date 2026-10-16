@@ -1,22 +1,13 @@
 {
   "corpus": "agent-loop.v1",
-  "corpus_sha256": "52f07c064d4e4d40011d341559cdf1f5011a834736b373d4ac4d5adc33e3fc63",
+  "corpus_sha256": "706f89cd06dd0c41db902ed0af6e00705724c0eb8fe369dfc0c152dcb1716296",
   "gate": {
     "invalid_scenarios": [],
-    "retirement_ready": false,
+    "release_notices_verified": true,
+    "retirement_ready": true,
     "run_is_valid": true,
-    "unapproved_differences": [
-      {
-        "class": "unsupported",
-        "field": "resumes_the_interrupted_model_response",
-        "scenario": "recovery_after_kill"
-      },
-      {
-        "class": "limitation",
-        "field": "side_effects_replayed_on_rerun",
-        "scenario": "recovery_after_kill"
-      }
-    ],
+    "unapproved_differences": [],
+    "undecided_unsupported_behaviors": [],
     "unsupported_behaviors": [
       "permission_modes",
       "provider_native_tool_loop",
@@ -50,6 +41,33 @@
       ]
     }
   },
+  "notices": [
+    {
+      "file": "README.md",
+      "found": true,
+      "marker": "RETRYING A TURN MAY REPEAT EXTERNAL EFFECTS"
+    },
+    {
+      "file": "RELEASE_NOTES.md",
+      "found": true,
+      "marker": "RETRYING A TURN MAY REPEAT EXTERNAL EFFECTS"
+    },
+    {
+      "file": "docs/product/release-limitations.md",
+      "found": true,
+      "marker": "RETRYING A TURN MAY REPEAT EXTERNAL EFFECTS"
+    },
+    {
+      "file": "scripts/package-release.sh",
+      "found": true,
+      "marker": "RELEASE_NOTES.md"
+    },
+    {
+      "file": "crates/chip-cli/src/software_work.rs",
+      "found": true,
+      "marker": "RETRYING A TURN MAY REPEAT EXTERNAL EFFECTS"
+    }
+  ],
   "scenarios": {
     "basic_turn": {
       "about": "One text answer, one inference, a completed turn.",
@@ -755,8 +773,8 @@
   "schema": 1,
   "tools": {
     "chip": "chip 0.1.0",
-    "chip_rs_ref": "17a261ada6d89d887e29a52a07eec573baee255f",
-    "chip_sha256": "3d3670f2fd956ceac4944499dc290cde3f9a7f616213231ff608622837134ce9",
+    "chip_rs_ref": "70b2ea69ca5385549169e69922a1d7aae9dc211a",
+    "chip_sha256": "b2e465cecf070090103049004bea558f6b243cfccb93050b56fa07e3d2cc0765",
     "python": "3.13.16",
     "zig_fx": "0.0.4",
     "zig_fx_sha256": "253effa87890fd4fe2afe98004566d7d85a1f22552864d2dfaaa088bd20d59a9"
