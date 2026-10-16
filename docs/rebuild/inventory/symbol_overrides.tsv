@@ -1,0 +1,149 @@
+# Symbol-level dispositions that refine the file rule in ownership_rules.tsv.
+# Columns: path, symbol (exact qualified name, or `Name.*` for a container and its members), capability, owner, disposition, note.
+# Evidence for each row is in docs/rebuild/audit/ and docs/rebuild/ARCHITECTURE.md.
+path	symbol	capability	owner	disposition	note
+src/core/agent/stream_provider.zig	StreamCallback	INF-STREAM	FX	REBUILD	replaced by the typed Event sink
+src/core/agent/stream_provider.zig	ToolStartCallback	INF-STREAM	FX	REBUILD	replaced by Event.tool_input_start
+src/core/agent/stream_provider.zig	DeliveryCertainty.*	INF-ERR	FX	KEEP	monotonic billed-ambiguity evidence; carried unchanged into the contract
+src/core/agent/stream_provider.zig	ProviderAttemptOwner	INF-EXEC	FX	REMOVE	FX never retries; the caller always owns attempts
+src/core/agent/stream_provider.zig	NetworkFailureCause	INF-ERR	FX	KEEP	becomes ErrorKind.transport_interrupted / system_resumed
+src/core/agent/stream_provider.zig	NetworkFailureEvidence	INF-ERR	FX	REBUILD	folded into Failure
+src/core/agent/stream_provider.zig	AttemptEvidence	INF-ERR	FX	REBUILD	folded into Failure and Completion
+src/core/agent/stream_provider.zig	CooperativePulse.*	INF-EXEC	FX	KEEP	single-threaded host yield; kept for the native cooperative path
+src/core/agent/stream_provider.zig	VisionMode	AGT-TOOLS	Chip	MOVE	tool advertisement policy
+src/core/agent/stream_provider.zig	BuildBudget	INF-EXEC	FX	KEEP	request-build cancellation and deadline
+src/core/agent/stream_provider.zig	StructuredResponseFormat	INF-CONTRACT	FX	KEEP	becomes GenerationOptions.response_format
+src/core/agent/stream_provider.zig	BuildRequest	INF-CONTRACT	FX	REBUILD	replaced by fx.Request (typed tools, no registry, no pre-serialized bytes)
+src/core/agent/stream_provider.zig	Request	INF-CONTRACT	FX	REBUILD	api_key, team, chat_url, retry_count leave the contract
+src/core/agent/stream_provider.zig	ResultOwnership	INF-CONTRACT	FX	REBUILD	ownership becomes an arena on the Outcome
+src/core/agent/stream_provider.zig	Result.*	INF-CONTRACT	FX	REBUILD	replaced by fx.Outcome; HTTP status becomes diagnostic only; billing reconciliation fields move to Easy-LLM
+src/core/agent/stream_provider.zig	StreamFn	INF-BIND	FX	REBUILD	replaced by InferenceCapability.vtable.start
+src/core/agent/stream_provider.zig	BuildFn	INF-BIND	FX	REMOVE	FX no longer hands opaque wire bytes across the seam
+src/core/agent/stream_provider.zig	Provider.*	INF-BIND	FX	REBUILD	replaced by InferenceCapability; deleted in the PR that migrates gateway_step
+src/core/agent/stream_provider.zig	unavailable_provider	INF-BIND	FX	KEEP	becomes unavailable_capability
+src/core/shared/types.zig	CredentialSource	PRV-AUTH	Easy-LLM	MOVE	
+src/core/shared/types.zig	parseCredentialSource	PRV-AUTH	Easy-LLM	MOVE	
+src/core/shared/types.zig	ModelRecoveryCause	AGT-RECOVERY	Chip	MOVE	derived from FX ErrorKind
+src/core/shared/types.zig	ChatRole	INF-CONTRACT	FX	KEEP	
+src/core/shared/types.zig	FinalToolIdentity	INF-TOOLS	FX	KEEP	
+src/core/shared/types.zig	ToolExecutionProvenance	INF-TOOLS	FX	KEEP	distinguishes proposals from provider-executed records
+src/core/shared/types.zig	ProviderResultIdentityFailure	INF-TOOLS	FX	KEEP	
+src/core/shared/types.zig	ToolArgumentIntegrity.*	INF-TOOLS	FX	KEEP	
+src/core/shared/types.zig	ToolCall.*	INF-TOOLS	FX	REBUILD	split into ToolCallProposal and ProviderToolRecord
+src/core/shared/types.zig	ImageAttachment	INF-CONTENT	FX	REBUILD	becomes Part.image
+src/core/shared/types.zig	ChatCachePolicy	INF-CONTRACT	FX	REBUILD	becomes a provider-neutral CacheHint
+src/core/shared/types.zig	ChatMessage.*	INF-CONTRACT	FX	REBUILD	becomes fx.Message with typed parts
+src/core/shared/types.zig	Usage.*	INF-USAGE	FX	REBUILD	widened to cache read/write and reasoning tokens
+src/core/shared/types.zig	GatewayBilling.*	INF-USAGE	Easy-LLM	MOVE	FX surfaces an opaque Cost reported by Easy-LLM
+src/core/shared/types.zig	TurnTokenProgress	INF-USAGE	Chip	MOVE	
+src/core/shared/types.zig	ProviderFinishReason.*	INF-CONTRACT	FX	KEEP	six-value finish vocabulary
+src/core/shared/types.zig	GatewayCompletion.*	INF-CONTRACT	FX	REBUILD	becomes fx.Completion
+src/core/shared/types.zig	parseGatewayTimestamp	INF-WIRE	Easy-LLM	MOVE	
+src/core/shared/types.zig	validGatewayGenerationId	INF-USAGE	Easy-LLM	MOVE	FX treats generation ids as opaque
+src/core/shared/types.zig	validGatewayTeam	PRV-AUTH	Easy-LLM	MOVE	
+src/core/shared/types.zig	ProviderCompletionDisposition	INF-CONTRACT	FX	KEEP	
+src/core/shared/types.zig	allToolCallsProviderExecuted	INF-CONTRACT	FX	KEEP	
+src/core/shared/types.zig	classifyProviderCompletion	INF-CONTRACT	FX	KEEP	
+src/core/shared/types.zig	AuthoritativeToolAdmission	INF-TOOLS	FX	KEEP	
+src/core/shared/types.zig	authoritativeToolAdmission	INF-TOOLS	FX	KEEP	proposal-envelope validator
+src/core/shared/types.zig	ToolChoice	INF-CONTRACT	FX	REBUILD	add required and named
+src/core/shared/types.zig	ReasoningEffort.*	INF-OPTIONS	FX	REBUILD	gatewayValue() mapping moves to Easy-LLM
+src/core/shared/types.zig	dupeToolCallSlice	INF-TOOLS	FX	REBUILD	
+src/core/shared/types.zig	freeToolCallSlice	INF-TOOLS	FX	REBUILD	
+src/core/shared/types.zig	dupeToolCall	INF-TOOLS	FX	REBUILD	
+src/core/shared/types.zig	freeToolCall	INF-TOOLS	FX	REBUILD	
+src/core/shared/types.zig	dupeImageAttachmentSlice	INF-CONTENT	FX	REBUILD	
+src/core/shared/types.zig	freeImageAttachment	INF-CONTENT	FX	REBUILD	
+src/core/shared/types.zig	freeImageAttachmentSlice	INF-CONTENT	FX	REBUILD	
+src/core/shared/types.zig	BackendKind	EXE-SANDBOX	Compute	MOVE	`vercel` and `just_bash` variants are REMOVE
+src/gateway/client.zig	isRetryableGatewayError	INF-ERR	FX	REBUILD	neutral transport-failure classification
+src/gateway/client.zig	networkFailureEvidence	INF-ERR	FX	REBUILD	
+src/gateway/client.zig	PostResult	PRV-GATEWAY	Easy-LLM	MOVE	
+src/gateway/client.zig	GetResult	PRV-GATEWAY	Easy-LLM	MOVE	
+src/gateway/client.zig	GatewayJsonResult	PRV-GATEWAY	Easy-LLM	MOVE	
+src/gateway/client.zig	fetchGatewayJson	PRV-CATALOG	Easy-LLM	MOVE	
+src/gateway/client.zig	fetchGatewayGetResult	PRV-CATALOG	Easy-LLM	MOVE	
+src/gateway/client.zig	fetchGatewayJsonCancellable	PRV-CATALOG	Easy-LLM	MOVE	
+src/gateway/client.zig	fetchGatewayGenerationResult	INF-USAGE	Easy-LLM	MOVE	/v1/generation reconciliation
+src/gateway/client.zig	generationBaseUrl	INF-USAGE	Easy-LLM	MOVE	
+src/gateway/client.zig	isTrustedGenerationOrigin	INF-USAGE	Easy-LLM	MOVE	
+src/gateway/client.zig	postGatewayCompletion	PRV-GATEWAY	Easy-LLM	REMOVE	dead non-streaming path; test-only callers
+src/gateway/client.zig	vercel_ai_gateway_team_header	PRV-GATEWAY	Easy-LLM	REMOVE	
+src/gateway/client.zig	isLoopbackHttpUrl	PRV-GATEWAY	Easy-LLM	MOVE	credential-gating rule
+src/gateway/client.zig	streamGatewayCompletion	PRV-GATEWAY	Easy-LLM	MOVE	Gateway stream entry
+src/gateway/client.zig	streamGatewayRequiredToolCompletionBounded	PRV-GATEWAY	Easy-LLM	MOVE	FX keeps only execute-with-deadline over the capability
+src/gateway/client.zig	streamGatewayProviderToolCompletionBounded	PRV-GATEWAY	Easy-LLM	MOVE	
+src/gateway/client.zig	runBoundedHttpOperation	INF-EXEC	FX	REBUILD	cancel/deadline race generalizes to any capability operation
+src/gateway/client.zig	consumeGatewaySseStream	INF-STREAM	FX	REBUILD	v3 decoding moves to Easy-LLM; normalization invariants become fx.Normalizer
+src/gateway/client.zig	StreamResult.*	INF-CONTRACT	FX	REBUILD	merged into fx.Outcome
+src/gateway/client.zig	ProviderAttemptOwner	INF-EXEC	FX	REMOVE	duplicate enum
+src/gateway/client.zig	TestModelCatalogFixture.*	PRV-CATALOG	Easy-LLM	MOVE	
+src/gateway/client.zig	SseEventReader.*	INF-WIRE	Easy-LLM	MOVE	SSE line framing is transport
+src/gateway/host_stream_provider.zig	Transport.*	INF-BIND	FX	REBUILD	becomes the host capability ABI
+src/gateway/host_stream_provider.zig	HostStreamReader.*	INF-BIND	FX	KEEP	
+src/core/gateway/gateway_json.zig	validateToolMessageHistory	INF-CONTRACT	FX	KEEP	tool-call/result pairing invariant
+src/core/gateway/gateway_json.zig	formatGatewayRequestShapeSummary	OBS-DIAG	FX	REBUILD	neutral redacted request-shape summary
+src/core/gateway/gateway_json.zig	parseGatewayCompletion	INF-WIRE	Easy-LLM	REMOVE	dead OpenAI chat-completions parser; test-only callers
+src/core/gateway/gateway_json.zig	freeGatewayCompletion	INF-WIRE	Easy-LLM	REMOVE	
+src/core/gateway/gateway_json.zig	BuildBudget	INF-EXEC	FX	REMOVE	duplicate of stream_provider.BuildBudget
+src/core/gateway/gateway_json.zig	StructuredResponseFormat	INF-CONTRACT	FX	REMOVE	duplicate
+src/core/gateway/gateway_json.zig	withRequestUserAgent	INF-WIRE	Easy-LLM	REMOVE	zai/glm-5.2-only body hack
+src/core/gateway/gateway_json.zig	writeProviderOptions	INF-OPTIONS	Easy-LLM	MOVE	gateway.speed and xai options
+src/builtins/gateway.zig	buildAgentRequest	INF-BIND	FX	REBUILD	request construction moves into fx.Request; v3 encoding to Easy-LLM
+src/builtins/gateway.zig	streamAgentCompletion	INF-BIND	Easy-LLM	MOVE	
+src/builtins/gateway.zig	default_model	PRV-CATALOG	Easy-LLM	MOVE	zai/glm-5.2 default
+src/builtins/gateway.zig	default_chat_url	PRV-GATEWAY	Easy-LLM	REMOVE	
+src/builtins/gateway.zig	executeGatewayWorker	AGT-WEB	Chip	MOVE	web-search worker; backend execution is Easy-LLM
+src/builtins/gateway.zig	providerToolsJson	AGT-WEB	Chip	MOVE	
+src/builtins/gateway.zig	fetchModelIds	PRV-CATALOG	Easy-LLM	REMOVE	test-only public function
+src/builtins/gateway.zig	fetchModelIdsCancellable	PRV-CATALOG	Easy-LLM	REMOVE	test-only
+src/builtins/gateway.zig	fetchPickerModelIdsCancellable	PRV-CATALOG	Easy-LLM	REMOVE	test-only
+src/builtins/gateway.zig	fetchModelCatalog	PRV-CATALOG	Easy-LLM	MOVE	
+src/builtins/gateway.zig	fetchModelCatalogCancellable	PRV-CATALOG	Easy-LLM	MOVE	
+src/builtins/gateway.zig	fetchPickerModelCatalog	PRV-CATALOG	Easy-LLM	REMOVE	test-only
+src/builtins/gateway.zig	fetchPickerModelCatalogCancellable	PRV-CATALOG	Easy-LLM	REMOVE	test-only
+src/builtins/gateway.zig	parseModelCatalogForView	PRV-CATALOG	Easy-LLM	MOVE	
+src/core/agent/runtime/gateway_step.zig	streamGatewayCompletion	INF-EXEC	FX	REBUILD	becomes fx.execute
+src/core/agent/runtime/gateway_step.zig	recordSelectedDynamicTool	AGT-MCP	Chip	MOVE	
+src/core/agent/runtime/assistant_stream.zig	SemanticPresentationSink	PRD-TUI	Chip	MOVE	
+src/core/agent/runtime/assistant_stream.zig	flushAssistantStream	PRD-TUI	Chip	MOVE	
+src/core/agent/runtime/assistant_stream.zig	normalizeAssistantTextForDisplay	PRD-TUI	Chip	MOVE	
+src/core/agent/runtime/assistant_stream.zig	finishLengthLimitedToolCallCompletion	AGT-LOOP	Chip	MOVE	
+src/core/config/model_capabilities.zig	GatewayMetadata.*	PRV-CATALOG	Easy-LLM	MOVE	
+src/core/config/model_capabilities.zig	resolveCapabilities	PRV-CATALOG	Easy-LLM	MOVE	prefix heuristics and hard-coded context windows
+src/core/config/model_capabilities.zig	resolveProviderOptions	INF-OPTIONS	Easy-LLM	MOVE	
+src/core/config/model_capabilities.zig	resolveProviderOptionsForCapabilities	INF-OPTIONS	Easy-LLM	MOVE	
+src/core/config/model_capabilities.zig	ResolvedProviderOptions.*	INF-OPTIONS	FX	REBUILD	becomes GenerationOptions (effort, speed, max tokens)
+src/core/auth/oauth_session.zig	issuer	PRV-AUTH	Easy-LLM	REMOVE	https://vercel.com
+src/core/auth/oauth_session.zig	default_client_id	PRV-AUTH	Easy-LLM	REMOVE	Vercel OAuth client id
+src/core/auth/credentials.zig	missing_credential_message	PRV-AUTH	Easy-LLM	REMOVE	Vercel-branded copy
+src/core/auth/credentials.zig	missing_interactive_credential_message	PRV-AUTH	Easy-LLM	REMOVE	Vercel-branded copy
+src/core/hosts/native_keychain.zig	service_name	SHR-SECRET	Easy-LLM	REBUILD	FX_AI_GATEWAY_API_KEY service is parameterized
+src/napi_core_main.zig	writeCore	EMB-NAPI	FX	REMOVE	ACP byte pipe
+src/napi_core_main.zig	closeCore	EMB-NAPI	FX	REMOVE	ACP byte pipe
+src/napi_core_main.zig	drainCore	EMB-NAPI	FX	REMOVE	ACP byte pipe
+src/napi_core_main.zig	InputQueue.*	EMB-NAPI	FX	REMOVE	
+src/napi_core_main.zig	OutputQueue.*	EMB-NAPI	FX	REMOVE	
+src/napi_core_main.zig	FetchBridge.*	EMB-NAPI	FX	REBUILD	generic host-capability bridge, N handles
+src/napi_core_main.zig	RuntimeHandle.*	EMB-NAPI	FX	KEEP	type-tagged handle lifecycle
+src/napi_core_main.zig	ensureThreadedIo	EMB-NAPI	FX	KEEP	
+src/napi_core_main.zig	claimRuntimeSlot	EMB-NAPI	FX	KEEP	
+src/napi_core_main.zig	releaseRuntimeSlot	EMB-NAPI	FX	KEEP	
+src/napi_core_main.zig	throwCreateError	EMB-NAPI	FX	KEEP	LIBFX_* error codes
+src/wasm_core_main.zig	fetchCredits	PRV-ACCOUNT	Easy-LLM	REMOVE	
+src/wasm_core_main.zig	fetchCliModelCatalog	PRV-CATALOG	Easy-LLM	MOVE	
+src/wasm_core_main.zig	panic	EMB-WASM	FX	KEEP	
+sdk/fx-sdk.js	supportsJspi	EMB-SDK	FX	INVESTIGATE	needed only if the rebuilt WASM keeps suspending imports (OD-5)
+sdk/fx-sdk.js	createFxAgent	EMB-ACP	Chip	MOVE	ACP agent client
+sdk/fx-sdk.js	createFxTerminal	EMB-TERM	fx-shell	MOVE	
+sdk/fx-sdk.js	xtermAdapter	EMB-TERM	fx-shell	MOVE	
+sdk/fx-sdk.js	encodeXtermKeyEvent	EMB-TERM	fx-shell	MOVE	
+sdk/fx-sdk.js	createMemorySessionStore	AGT-SESSION	Chip	MOVE	
+sdk/fx-sdk.js	prepareWorkspaceAdapter	EXE-WORKSPACE	Compute	MOVE	
+sdk/fx-sdk.js	ByteQueue.*	EMB-SDK	FX	KEEP	
+sdk/fx-sdk.js	loadModule	EMB-SDK	FX	KEEP	
+sdk/node.js	validateGatewayChatUrl	PRV-GATEWAY	Easy-LLM	MOVE	SSRF/credential gating
+sdk/node.js	createFxAgent	EMB-ACP	Chip	MOVE	
+sdk/node.js	createFxTerminal	EMB-TERM	fx-shell	MOVE	
+sdk/browser.js	createFxAgent	EMB-ACP	Chip	MOVE	
+sdk/browser.js	createFxTerminal	EMB-TERM	fx-shell	MOVE	

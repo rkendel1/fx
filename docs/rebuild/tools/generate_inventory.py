@@ -37,6 +37,8 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 OUT = ROOT / "docs" / "rebuild" / "inventory"
 RULES = OUT / "ownership_rules.tsv"
+OVERRIDES = OUT / "symbol_overrides.tsv"
+LEDGER = ROOT / "docs" / "rebuild" / "CAPABILITIES.md"
 SELF_PREFIX = "docs/rebuild/"
 
 ZIG_FN = re.compile(
@@ -121,6 +123,34 @@ def load_rules() -> list[Rule]:
         rules.append(Rule(*cols))
     # Longest prefix wins so a specific file rule overrides its directory rule.
     return sorted(rules, key=lambda r: len(r.prefix), reverse=True)
+
+
+def load_overrides() -> dict[str, list[tuple[str, tuple[str, str, str, str]]]]:
+    """Maps path to [(symbol pattern, (capability, owner, disposition, note))]."""
+    table: dict[str, list[tuple[str, tuple[str, str, str, str]]]] = collections.defaultdict(list)
+    for raw in OVERRIDES.read_text().splitlines():
+        if not raw.strip() or raw.startswith("#"):
+            continue
+        cols = raw.split("\t")
+        if cols[0] == "path":
+            continue
+        while len(cols) < 6:
+            cols.append("")
+        table[cols[0]].append((cols[1], (cols[2], cols[3], cols[4], cols[5])))
+    return table
+
+
+def match_override(table, path: str, qualified: str):
+    best = None
+    for pattern, value in table.get(path, ()):
+        if pattern.endswith(".*"):
+            base = pattern[:-2]
+            hit = qualified == base or qualified.startswith(base + ".")
+        else:
+            hit = qualified == pattern
+        if hit and (best is None or len(pattern) > len(best[0])):
+            best = (pattern, value)
+    return best
 
 
 def classify(path: str, rules: list[Rule]) -> Rule | None:
@@ -273,6 +303,34 @@ def scan_js(path: str, lines: list[str]) -> list[Symbol]:
     return symbols
 
 
+AUDIT_BY_CAPABILITY = (
+    ("INF-", "audit/01-inference-path.md"),
+    ("OBS-", "audit/05-product-shell.md"),
+    ("SHR-SECRET", "audit/02-auth-config-hosts.md"),
+    ("SHR-", "audit/05-product-shell.md"),
+    ("PRV-", "audit/02-auth-config-hosts.md"),
+    ("PRD-UPGRADE", "audit/02-auth-config-hosts.md"),
+    ("PRD-FEEDBACK", "audit/02-auth-config-hosts.md"),
+    ("PRD-CONFIG", "audit/02-auth-config-hosts.md"),
+    ("PRD-", "audit/05-product-shell.md"),
+    ("EXE-REMOTE", "audit/02-auth-config-hosts.md"),
+    ("EXE-", "audit/03-agent-tools-execution.md"),
+    ("AGT-", "audit/03-agent-tools-execution.md"),
+    ("EMB-HOST", "audit/02-auth-config-hosts.md"),
+    ("EMB-", "audit/04-embedding-build-ci.md"),
+    ("OPS-", "audit/04-embedding-build-ci.md"),
+    ("DOC", "VERCEL_TRACE.md"),
+)
+
+
+def review_status(capability: str) -> str:
+    """Names the audit note whose pass covered this file's area."""
+    for prefix, doc in AUDIT_BY_CAPABILITY:
+        if capability.startswith(prefix):
+            return doc
+    return "unreviewed"
+
+
 def language(path: str) -> str:
     """Lexical references only count within one language family."""
     if path.endswith(".zig"):
@@ -319,18 +377,32 @@ def generate() -> dict[str, str]:
             symbols.extend(syms)
             decls = len(syms)
         elif text is not None and path.endswith((".mjs", ".ts", ".js")):
-            tests = len(re.findall(r"^\s*(?:test|it)(?:\.\w+)?\(\s*[\"'`]", text, re.M))
-            if not tests and kind == "test":
-                tests = len(re.findall(r"^\s*(?:await\s+)?(?:check|step|run)\w*\(\s*[\"'`]", text, re.M))
+            tests = len(re.findall(
+                r"^\s*(?:test|it|[a-z]\w*Test)(?:\.\w+(?:\((?:[^()]|\([^()]*\))*\))?)*\(\s*[\"'`]", text, re.M))
+            if not tests and pathlib.PurePosixPath(path).name.startswith("test-"):
+                tests = 1  # standalone scenario script: one pass/fail result per file
         elif text is not None and path.endswith(".py"):
             tests = len(re.findall(r"^\s*def test_\w+", text, re.M))
         test_counts[path] = tests
+        purpose = ""
+        if text is not None:
+            header = [ln[3:].strip() for ln in text.splitlines()[:12] if ln.startswith("//!")]
+            purpose = " ".join(header)[:160]
+        if not purpose and rule:
+            purpose = rule.note
+        key_decls = ",".join(
+            sym.qualified for sym in symbols
+            if sym.path == path and sym.visibility in ("pub", "export") and "." not in sym.qualified
+        )
         file_rows.append([
             path, kind, "binary" if text is None else line_count, decls, tests, local,
             rule.capability if rule else "UNCLASSIFIED",
             rule.owner if rule else "UNCLASSIFIED",
             rule.disposition if rule else "UNCLASSIFIED",
             rule.prefix if rule else "",
+            review_status(rule.capability if rule else ""),
+            purpose,
+            ",".join(key_decls.split(",")[:6]),
         ])
 
     definitions = collections.Counter()
@@ -346,9 +418,20 @@ def generate() -> dict[str, str]:
         for name in toks & names:
             referencing[(lang, name)].append(path)
 
+    overrides = load_overrides()
+    used_overrides: set[tuple[str, str]] = set()
     sym_rows: list[list[object]] = []
     for s in symbols:
         rule = classify(s.path, rules)
+        cap = rule.capability if rule else "UNCLASSIFIED"
+        owner = rule.owner if rule else "UNCLASSIFIED"
+        disp = rule.disposition if rule else "UNCLASSIFIED"
+        source = "rule"
+        hit = match_override(overrides, s.path, s.qualified)
+        if hit:
+            used_overrides.add((s.path, hit[0]))
+            cap, owner, disp = hit[1][0], hit[1][1], hit[1][2]
+            source = "override"
         others = sorted(p for p in referencing[(language(s.path), s.name)] if p != s.path)
         if definitions[s.name] >= AMBIGUOUS_DEFINITIONS or len(others) > AMBIGUOUS_REFERENCES:
             callers = "ambiguous"
@@ -359,28 +442,31 @@ def generate() -> dict[str, str]:
         sym_rows.append([
             s.path, s.line, s.qualified, s.kind, s.visibility,
             callers, sample, "yes" if s.tested_in_file else "no",
-            rule.capability if rule else "UNCLASSIFIED",
-            rule.owner if rule else "UNCLASSIFIED",
-            rule.disposition if rule else "UNCLASSIFIED",
+            cap, owner, disp, source,
             s.signature,
         ])
 
     outputs: dict[str, str] = {}
     header = ["path", "kind", "lines", "production_decls", "tests", "test_local_decls",
-              "capability", "owner", "disposition", "rule_prefix"]
+              "capability", "owner", "disposition", "rule_prefix", "review", "purpose", "key_public_decls"]
     outputs["files.tsv"] = "\n".join(
         "\t".join(tsv_escape(c) for c in row) for row in [header, *file_rows]
     ) + "\n"
     sym_header = ["path", "line", "symbol", "kind", "visibility", "external_ref_files",
-                  "ref_sample", "named_in_file_tests", "capability", "owner", "disposition", "signature"]
+                  "ref_sample", "named_in_file_tests", "capability", "owner", "disposition",
+                  "disposition_source", "signature"]
     outputs["symbols.tsv"] = "\n".join(
         "\t".join(tsv_escape(c) for c in row) for row in [sym_header, *sym_rows]
     ) + "\n"
-    outputs["summary.md"] = render_summary(file_rows, sym_rows, unclassified, rules)
+    stale_overrides = sorted(
+        f"{path} {pattern}" for path, entries in overrides.items() for pattern, _ in entries
+        if (path, pattern) not in used_overrides
+    )
+    outputs["summary.md"] = render_summary(file_rows, sym_rows, unclassified, rules, stale_overrides)
     return outputs
 
 
-def render_summary(file_rows, sym_rows, unclassified, rules) -> str:
+def render_summary(file_rows, sym_rows, unclassified, rules, stale_overrides) -> str:
     by_rule = collections.OrderedDict()
     for r in sorted(rules, key=lambda r: r.prefix):
         by_rule[r.prefix] = [r, 0, 0, 0, 0]
@@ -459,6 +545,10 @@ def render_summary(file_rows, sym_rows, unclassified, rules) -> str:
     unused = [p for p, e in by_rule.items() if e[1] == 0]
     out += ["", "## Rules that match no file", ""]
     out += [f"- `{p}`" for p in unused] or ["None."]
+    overridden = sum(1 for row in sym_rows if row[11] == "override")
+    out += ["", f"## Symbol overrides ({overridden} declarations refined by `symbol_overrides.tsv`)", ""]
+    out += ["Overrides that match no declaration:", ""]
+    out += [f"- `{p}`" for p in stale_overrides] or ["None."]
     out += ["", "## Unclassified files", ""]
     out += [f"- `{p}`" for p in unclassified] or ["None."]
     return "\n".join(out) + "\n"
@@ -475,8 +565,23 @@ def main(argv: list[str]) -> int:
         if stale:
             print(f"stale inventory outputs: {', '.join(stale)}", file=sys.stderr)
             return 1
+        if "\tunreviewed\t" in outputs["files.tsv"]:
+            print("files without a covering audit remain", file=sys.stderr)
+            return 1
         if unclassified != "None.":
             print("unclassified files remain", file=sys.stderr)
+            return 1
+        defined = set(re.findall(r"^\| `([A-Z]+-[A-Z0-9-]+|DOC)` \|", LEDGER.read_text(), re.M))
+        used = {r.capability for r in load_rules()} | {
+            v[0] for entries in load_overrides().values() for _, v in entries
+        }
+        undefined = sorted(used - defined)
+        if undefined:
+            print(f"capability IDs missing from CAPABILITIES.md: {', '.join(undefined)}", file=sys.stderr)
+            return 1
+        stale = outputs["summary.md"].split("Overrides that match no declaration:", 1)[1].split("##", 1)[0].strip()
+        if stale != "None.":
+            print("symbol overrides match no declaration", file=sys.stderr)
             return 1
         return 0
     OUT.mkdir(parents=True, exist_ok=True)
