@@ -62,7 +62,7 @@ host/node/conformance/cases.mjs	76	kinds	fn	module	2	benchmarks/approval_review_
 host/node/conformance/cases.mjs	79	requestsOf	fn	module	0		no	EMB-HOST	FX	KEEP	rule	const requestsOf = (run) => run.http;
 host/node/conformance/harness.mjs	43	createAdapter	fn	module	0		no	EMB-HOST	FX	KEEP	rule	function createAdapter(id, baseUrl, easyLlm) {
 host/node/conformance/harness.mjs	60	sleep	fn	module	ambiguous		no	EMB-HOST	FX	KEEP	rule	const sleep = (/** @type {number} */ ms) => new Promise((resolve) => setTimeout(resolve, ms));
-host/node/conformance/harness.mjs	67	createHarness	fn	export	1	host/node/conformance/suite.mjs	no	EMB-HOST	FX	KEEP	rule	export async function createHarness({ easyLlm, wasm }) {
+host/node/conformance/harness.mjs	67	createHarness	fn	export	2	host/node/conformance/native-parity.mjs,host/node/conformance/suite.mjs	no	EMB-HOST	FX	KEEP	rule	export async function createHarness({ easyLlm, wasm }) {
 host/node/conformance/harness.mjs	73	adapterFor	fn	module	0		no	EMB-HOST	FX	KEEP	rule	const adapterFor = (id, dead) => {
 host/node/conformance/harness.mjs	89	run	fn	module	ambiguous		no	EMB-HOST	FX	KEEP	rule	async function run(provider, scenario, mode, options = {}) {
 host/node/conformance/harness.mjs	131	checkInvariants	fn	export	1	host/node/conformance/suite.mjs	no	EMB-HOST	FX	KEEP	rule	export function checkInvariants(run, label) {
@@ -81,6 +81,9 @@ host/node/conformance/mock-providers.mjs	187	raw	fn	module	ambiguous		no	EMB-HOS
 host/node/conformance/mock-providers.mjs	258	route	fn	module	12	host/node/src/chip.js,host/node/src/index.js,tests/e2e/acp.test.ts	no	EMB-HOST	FX	KEEP	rule	function route(url, body) {
 host/node/conformance/mock-providers.mjs	288	startProviderMocks	fn	export	1	host/node/conformance/harness.mjs	no	EMB-HOST	FX	KEEP	rule	export async function startProviderMocks(scenarios) {
 host/node/conformance/mock-providers.mjs	385	baseFor	fn	module	0		no	EMB-HOST	FX	KEEP	rule	const baseFor = (root, provider) => {
+host/node/conformance/native-parity.mjs	106	partial	fn	module	17	host/node/conformance/cases.mjs,host/node/conformance/mock-providers.mjs,host/node/conformance/scenarios.mjs	no	EMB-HOST	FX	KEEP	rule	function partial(o, scenario) {
+host/node/conformance/native-parity.mjs	112	project	fn	module	17	tests/e2e/acp.test.ts,tests/e2e/ask-presentation.test.ts,tests/e2e/cli.test.ts	no	EMB-HOST	FX	KEEP	rule	function project(o, scenario, provider) {
+host/node/conformance/native-parity.mjs	146	runNative	fn	module	0		no	EMB-HOST	FX	KEEP	rule	function runNative(argv) {
 host/node/conformance/report.mjs	18	formatConsole	fn	export	1	host/node/scripts/conformance.mjs	no	EMB-HOST	FX	KEEP	rule	export function formatConsole(results) {
 host/node/conformance/report.mjs	36	toJson	fn	export	2	host/node/scripts/conformance.mjs,host/node/test/provider-conformance.test.mjs	no	EMB-HOST	FX	KEEP	rule	export function toJson(results) {
 host/node/conformance/report.mjs	47	formatMarkdown	fn	export	2	host/node/scripts/conformance.mjs,host/node/test/provider-conformance.test.mjs	no	EMB-HOST	FX	KEEP	rule	export function formatMarkdown(manifest, results) {
@@ -131,13 +134,13 @@ host/node/src/wasm.js	153	FxSession	class	export	0		no	EMB-HOST	FX	KEEP	rule	exp
 host/node/src/wasm.js	158	FxSession.constructor	method	member	11	host/node/src/chip.js,host/node/src/index.js,tests/e2e/acp.test.ts	no	EMB-HOST	FX	KEEP	rule	constructor(exports, handle) {
 host/node/src/wasm.js	173	loadExports	fn	export	1	host/node/src/chip.js	no	EMB-HOST	FX	KEEP	rule	export async function loadExports(source, prefix, versions) {
 host/node/src/wasm.js	208	loadModule	fn	export	5	host/node/src/index.js,host/node/test/abi.test.mjs,host/node/test/bridge.test.mjs	no	EMB-HOST	FX	KEEP	rule	export async function loadModule(source) {
-host/node/test-chip/chip.test.mjs	16	scenario	fn	module	27	host/node/conformance/cases.mjs,host/node/conformance/harness.mjs,host/node/conformance/mock-providers.mjs	no	EMB-HOST	FX	KEEP	rule	const scenario = (replies, options) => runScenario(chip, replies, options);
+host/node/test-chip/chip.test.mjs	16	scenario	fn	module	28	host/node/conformance/cases.mjs,host/node/conformance/harness.mjs,host/node/conformance/mock-providers.mjs	no	EMB-HOST	FX	KEEP	rule	const scenario = (replies, options) => runScenario(chip, replies, options);
 host/node/test-chip/parity.test.mjs	24	run	fn	module	ambiguous		no	EMB-HOST	FX	KEEP	rule	const run = (replies, options) => runScenario(chip, replies, options);
 host/node/test-chip/parity.test.mjs	26	zig	fn	module	ambiguous		no	EMB-HOST	FX	KEEP	rule	const zig = (name) => {
 host/node/test-chip/parity.test.mjs	70	mentioned	fn	module	0		no	EMB-HOST	FX	KEEP	rule	const mentioned = (id) => assert.match(document, new RegExp(`\\b${id}\\b`), `${id} must be explained in CHIP_FX_RUNTIME.md`);
 host/node/test-chip/support.mjs	16	spec	fn	export	10	host/node/conformance/cases.mjs,host/node/conformance/manifest.mjs,host/node/src/chip.js	no	EMB-HOST	FX	KEEP	rule	export const spec = (over = {}) => ({
 host/node/test-chip/support.mjs	26	runtimes	fn	export	3	host/node/test-chip/chip.test.mjs,host/node/test-chip/parity.test.mjs,tests/evals/agent-quality-matrix.ts	no	EMB-HOST	FX	KEEP	rule	export async function runtimes() {
-host/node/test-chip/support.mjs	35	scenario	fn	export	27	host/node/conformance/cases.mjs,host/node/conformance/harness.mjs,host/node/conformance/mock-providers.mjs	no	EMB-HOST	FX	KEEP	rule	export async function scenario(chip, replies, { specOver, mode = "stream", executor, signal, afterRun } = {}) {
+host/node/test-chip/support.mjs	35	scenario	fn	export	28	host/node/conformance/cases.mjs,host/node/conformance/harness.mjs,host/node/conformance/mock-providers.mjs	no	EMB-HOST	FX	KEEP	rule	export async function scenario(chip, replies, { specOver, mode = "stream", executor, signal, afterRun } = {}) {
 sdk/browser.js	16	createFxAgent	fn	export	14	sdk/fx-sdk.js,sdk/index.html,sdk/node.js	no	EMB-ACP	Chip	MOVE	override	export function createFxAgent(options = {}) {
 sdk/browser.js	20	createFxTerminal	fn	export	15	sdk/browser-test-terminal.html,sdk/fx-sdk.js,sdk/node.js	no	EMB-TERM	fx-shell	MOVE	override	export function createFxTerminal(options = {}) {
 sdk/fx-sdk.js	9	validWorkspacePath	fn	module	0		no	EMB-SDK	FX	REBUILD	rule	function validWorkspacePath(path) {

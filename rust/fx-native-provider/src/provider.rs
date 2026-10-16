@@ -1,8 +1,9 @@
-//! The OpenAI-compatible chat-completions provider.
+//! The shared native provider: one worker, one request, polled through a channel.
 //!
-//! One `invoke` starts one worker thread that makes one HTTP request and streams its
-//! response into a channel; `poll` drains the channel with a short wait. There is no retry,
-//! no redirect following and no second request.
+//! Every provider uses this code; only the [`Wire`] differs (request, headers, stream format).
+//! One `invoke` starts one worker thread that makes one HTTP request and streams its response
+//! into a channel; `poll` drains the channel with a short wait. There is no retry, no redirect
+//! following and no second request.
 
 use std::collections::VecDeque;
 use std::io::Read;
@@ -14,13 +15,12 @@ use std::time::{Duration, Instant};
 use fx_core::{AttemptBudget, Request};
 use fx_single_attempt::{
     AbortReport, Observed, PortFailure, PortFailureKind, PortItem, PortPoll, PortSupport,
-    PortUsage, ProviderPort, Terminal,
+    ProviderPort,
 };
 
-use crate::body;
-use crate::config::OpenAiConfig;
-use crate::secret::Secret;
-use crate::sse::{Decoded, Framer, decode};
+use crate::config::{AnthropicConfig, OpenAiConfig};
+use crate::sse::Framer;
+use crate::wire::{Step, Wire};
 
 /// How long one `poll` waits for the worker before returning empty.
 const POLL_WAIT: Duration = Duration::from_millis(25);
@@ -28,18 +28,40 @@ const POLL_WAIT: Duration = Duration::from_millis(25);
 const ERROR_BODY_LIMIT: u64 = 8 * 1024;
 const MESSAGE_LIMIT: usize = 512;
 
-/// The native provider for OpenAI-compatible `/chat/completions` endpoints (streaming).
-///
-/// Carries text conversations only. See `docs/rebuild/NATIVE_PROVIDER.md`.
-#[derive(Debug)]
-pub struct OpenAiCompatible {
-    config: OpenAiConfig,
+/// A native provider over wire format `W`. See [`OpenAiCompatible`] and [`Anthropic`].
+pub struct Native<W: Wire> {
+    wire: Arc<W>,
 }
+
+impl<W: Wire> std::fmt::Debug for Native<W> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Native { .. }")
+    }
+}
+
+/// The native provider for OpenAI-compatible `/chat/completions` endpoints (streaming):
+/// OpenAI, OpenRouter, LM Studio and others. Text conversations and an output token cap.
+pub type OpenAiCompatible = Native<crate::openai::OpenAiWire>;
+
+/// The native provider for the Anthropic Messages API (streaming). Text conversations and an
+/// output token cap.
+pub type Anthropic = Native<crate::anthropic::AnthropicWire>;
 
 impl OpenAiCompatible {
     /// Creates the provider from host configuration.
     pub fn new(config: OpenAiConfig) -> Self {
-        Self { config }
+        Self {
+            wire: Arc::new(crate::openai::OpenAiWire { config }),
+        }
+    }
+}
+
+impl Anthropic {
+    /// Creates the provider from host configuration.
+    pub fn new(config: AnthropicConfig) -> Self {
+        Self {
+            wire: Arc::new(crate::anthropic::AnthropicWire { config }),
+        }
     }
 }
 
@@ -51,8 +73,7 @@ enum Message {
 }
 
 /// Per-call state: the receiving end of the worker and what has been observed.
-#[derive(Debug)]
-pub struct OpenAiCall {
+pub struct NativeCall {
     rx: Receiver<Message>,
     cancel: Arc<AtomicBool>,
     deadline: Instant,
@@ -63,11 +84,14 @@ pub struct OpenAiCall {
     aborted: bool,
 }
 
-impl std::fmt::Debug for Message {
+impl std::fmt::Debug for NativeCall {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Message")
+        f.write_str("NativeCall { .. }")
     }
 }
+
+/// Former name of [`NativeCall`].
+pub type OpenAiCall = NativeCall;
 
 fn failure(kind: PortFailureKind, message: impl Into<String>, observed: Observed) -> PortFailure {
     PortFailure {
@@ -79,28 +103,27 @@ fn failure(kind: PortFailureKind, message: impl Into<String>, observed: Observed
     }
 }
 
-impl ProviderPort for OpenAiCompatible {
-    type Call = OpenAiCall;
+impl<W: Wire> ProviderPort for Native<W> {
+    type Call = NativeCall;
 
     fn support(&self) -> PortSupport {
-        // Text only. Anything else is refused by the capability before `invoke`.
-        PortSupport::default()
+        self.wire.support()
     }
 
     fn invoke(
         &mut self,
         request: &Request,
         budget: Option<AttemptBudget>,
-    ) -> Result<OpenAiCall, PortFailure> {
-        let body = body::build(request)
+    ) -> Result<NativeCall, PortFailure> {
+        let body = self
+            .wire
+            .body(request)
             .map_err(|why| failure(PortFailureKind::Unsupported, why, Observed::NotInvoked))?;
-        let deadline_after = budget.map_or(self.config.default_deadline, |b| b.0);
+        let deadline_after = budget.map_or(self.wire.settings().default_deadline, |b| b.0);
         let (tx, rx) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let worker = Worker {
-            url: self.config.endpoint(),
-            key: self.config.api_key.clone(),
-            connect_timeout: self.config.connect_timeout,
+            wire: Arc::clone(&self.wire),
             deadline: deadline_after,
             cancel: Arc::clone(&cancel),
             tx,
@@ -115,7 +138,7 @@ impl ProviderPort for OpenAiCompatible {
                     Observed::NotInvoked,
                 )
             })?;
-        Ok(OpenAiCall {
+        Ok(NativeCall {
             rx,
             cancel,
             deadline: Instant::now() + deadline_after,
@@ -127,7 +150,7 @@ impl ProviderPort for OpenAiCompatible {
         })
     }
 
-    fn poll(&mut self, call: &mut OpenAiCall, max_items: usize) -> Result<PortPoll, PortFailure> {
+    fn poll(&mut self, call: &mut NativeCall, max_items: usize) -> Result<PortPoll, PortFailure> {
         if call.aborted {
             return Err(failure(
                 PortFailureKind::Aborted,
@@ -178,7 +201,7 @@ impl ProviderPort for OpenAiCompatible {
         })
     }
 
-    fn abort(&mut self, call: &mut OpenAiCall) -> AbortReport {
+    fn abort(&mut self, call: &mut NativeCall) -> AbortReport {
         call.aborted = true;
         call.cancel.store(true, Ordering::SeqCst);
         // A blocking read cannot be interrupted, so the closing of the transport is not
@@ -188,13 +211,13 @@ impl ProviderPort for OpenAiCompatible {
         }
     }
 
-    fn release(&mut self, call: OpenAiCall) {
+    fn release(&mut self, call: NativeCall) {
         call.cancel.store(true, Ordering::SeqCst);
         drop(call);
     }
 }
 
-impl OpenAiCall {
+impl NativeCall {
     fn accept(&mut self, message: Message) {
         match message {
             Message::Items(items) => {
@@ -215,16 +238,14 @@ impl OpenAiCall {
     }
 }
 
-struct Worker {
-    url: String,
-    key: Secret,
-    connect_timeout: Duration,
+struct Worker<W: Wire> {
+    wire: Arc<W>,
     deadline: Duration,
     cancel: Arc<AtomicBool>,
     tx: Sender<Message>,
 }
 
-impl Worker {
+impl<W: Wire> Worker<W> {
     fn run(self, body: &[u8]) {
         let result = self.exchange(body);
         let _ = self.tx.send(match result {
@@ -234,7 +255,10 @@ impl Worker {
     }
 
     fn scrub(&self, text: &str) -> String {
-        let mut text = self.key.scrub(text);
+        let mut text = match self.wire.secret() {
+            Some(secret) => secret.scrub(text),
+            None => text.to_owned(),
+        };
         if text.len() > MESSAGE_LIMIT {
             let mut cut = MESSAGE_LIMIT;
             while !text.is_char_boundary(cut) {
@@ -246,21 +270,20 @@ impl Worker {
     }
 
     fn exchange(&self, body: &[u8]) -> Result<(), PortFailure> {
+        let settings = self.wire.settings();
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .http_status_as_error(false)
             .max_redirects(0)
             .proxy(None)
-            .timeout_connect(Some(self.connect_timeout))
+            .timeout_connect(Some(settings.connect_timeout))
             .timeout_global(Some(self.deadline))
             .build()
             .into();
-        let sent = agent
-            .post(&self.url)
-            .header("authorization", format!("Bearer {}", self.key.expose()))
-            .header("accept", "text/event-stream")
-            .header("content-type", "application/json")
-            .send(body);
-        let mut response = match sent {
+        let mut request = agent.post(&self.wire.url());
+        for (name, value) in self.wire.headers() {
+            request = request.header(name, value);
+        }
+        let mut response = match request.send(body) {
             Ok(response) => response,
             Err(error) => return Err(self.transport_failure(&error)),
         };
@@ -322,12 +345,9 @@ impl Worker {
 
     fn stream(&self, mut reader: impl Read) -> Result<(), PortFailure> {
         let mut framer = Framer::default();
+        let mut decoder = self.wire.decoder();
         let mut buf = [0u8; 4096];
         let mut seen_output = false;
-        let mut finish: Option<String> = None;
-        let mut model: Option<String> = None;
-        let mut usage: Option<PortUsage> = None;
-        let mut refused = false;
         let observed = |seen: bool| {
             if seen {
                 Observed::OutputObserved
@@ -370,31 +390,18 @@ impl Worker {
             let frames = framer.push(&buf[..n]).map_err(|why| {
                 failure(PortFailureKind::MalformedOutput, why, observed(seen_output))
             })?;
-            for crate::sse::Frame::Data(data) in frames {
-                if data.trim() == "[DONE]" {
-                    if finish.is_none() {
-                        return Err(failure(
-                            PortFailureKind::MalformedOutput,
-                            "the stream ended without a finish reason",
-                            observed(seen_output),
-                        ));
+            for frame in frames {
+                match decoder.feed(frame.event.as_deref(), &frame.data) {
+                    Ok(Step::Items(items)) => {
+                        seen_output = true;
+                        // The first event always reports arrival, even when it carries no text.
+                        let _ = self.tx.send(Message::Items(items));
                     }
-                    let done = PortItem::Done {
-                        usage: usage.take(),
-                        finish_reason: if refused {
-                            Some("content_filter".to_owned())
-                        } else {
-                            finish.take()
-                        },
-                        model: model.take(),
-                        terminal: Terminal::ProviderMarker,
-                    };
-                    self.send(vec![done]);
-                    return Ok(());
-                }
-                let chunk = match decode(&data) {
-                    Ok(Decoded::Chunk(chunk)) => chunk,
-                    Ok(Decoded::ProviderError(message)) => {
+                    Ok(Step::Done(done)) => {
+                        let _ = self.tx.send(Message::Items(vec![done]));
+                        return Ok(());
+                    }
+                    Ok(Step::ProviderError(message)) => {
                         return Err(failure(
                             PortFailureKind::ProviderError,
                             self.scrub(&message),
@@ -408,32 +415,8 @@ impl Worker {
                             observed(seen_output),
                         ));
                     }
-                };
-                seen_output = true;
-                let mut items = Vec::new();
-                if !chunk.text.is_empty() {
-                    items.push(PortItem::Text(chunk.text));
                 }
-                if !chunk.refusal.is_empty() {
-                    refused = true;
-                    items.push(PortItem::Text(chunk.refusal));
-                }
-                if chunk.finish_reason.is_some() {
-                    finish = chunk.finish_reason;
-                }
-                if chunk.model.is_some() {
-                    model = chunk.model;
-                }
-                if chunk.usage.is_some() {
-                    usage = chunk.usage;
-                }
-                // The first chunk always reports arrival, even when it carries no text.
-                self.send(items);
             }
         }
-    }
-
-    fn send(&self, items: Vec<PortItem>) {
-        let _ = self.tx.send(Message::Items(items));
     }
 }

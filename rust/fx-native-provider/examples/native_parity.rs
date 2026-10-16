@@ -2,7 +2,7 @@
 //! prints the terminal outcome in FX's own wire encoding, the same encoding the Node host
 //! reports. `host/node/conformance/native-parity.mjs` compares the two.
 //!
-//!   native_parity <base_url> <scenario> [budget_ms]
+//!   native_parity <openai|anthropic> <base_url> <scenario> [budget_ms]
 //!
 //! Offline: the base URL is a local mock server and the credential is a fixed fake.
 
@@ -10,7 +10,7 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use fx_core::*;
-use fx_native_provider::{OpenAiCompatible, OpenAiConfig, Secret};
+use fx_native_provider::{Anthropic, AnthropicConfig, OpenAiCompatible, OpenAiConfig, Secret};
 use fx_single_attempt::SingleAttemptCapability;
 
 /// The same fake key the Node conformance harness uses.
@@ -29,16 +29,16 @@ impl fx_core::Host for Quiet {
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
-    if args.len() < 3 {
-        eprintln!("usage: native_parity <base_url> <scenario> [budget_ms]");
+    if args.len() < 4 {
+        eprintln!("usage: native_parity <openai|anthropic> <base_url> <scenario> [budget_ms]");
         return ExitCode::from(2);
     }
     let budget = args
-        .get(3)
+        .get(4)
         .and_then(|v| v.parse::<u64>().ok())
         .map(|ms| AttemptBudget(Duration::from_millis(ms)));
     let request = Request {
-        model: ModelRef(args[2].clone()),
+        model: ModelRef(args[3].clone()),
         messages: vec![Message {
             role: Role::User,
             parts: vec![Part::Text("say hi".to_owned())],
@@ -56,15 +56,34 @@ fn main() -> ExitCode {
         },
         budget,
     };
-    let config = match OpenAiConfig::new(&args[1], Secret::new(KEY)) {
-        Ok(config) => config,
-        Err(error) => {
-            eprintln!("{error}");
+    let report = match args[1].as_str() {
+        "openai" => {
+            let config = match OpenAiConfig::new(&args[2], Secret::new(KEY)) {
+                Ok(config) => config,
+                Err(error) => {
+                    eprintln!("{error}");
+                    return ExitCode::from(2);
+                }
+            };
+            let mut capability = SingleAttemptCapability::new(OpenAiCompatible::new(config));
+            execute(&mut capability, &request, &Limits::DEFAULT, &mut Quiet)
+        }
+        "anthropic" => {
+            let config = match AnthropicConfig::new(&args[2], Secret::new(KEY)) {
+                Ok(config) => config,
+                Err(error) => {
+                    eprintln!("{error}");
+                    return ExitCode::from(2);
+                }
+            };
+            let mut capability = SingleAttemptCapability::new(Anthropic::new(config));
+            execute(&mut capability, &request, &Limits::DEFAULT, &mut Quiet)
+        }
+        other => {
+            eprintln!("unknown provider {other}");
             return ExitCode::from(2);
         }
     };
-    let mut capability = SingleAttemptCapability::new(OpenAiCompatible::new(config));
-    let report = execute(&mut capability, &request, &Limits::DEFAULT, &mut Quiet);
     println!(
         "{}",
         String::from_utf8_lossy(&wire::encode_outcome(&report.outcome))

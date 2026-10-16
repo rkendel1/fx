@@ -90,7 +90,7 @@ for pattern in "${patterns[@]}"; do
 done
 
 # 5. Exactly one place makes an HTTP request, and it is the single POST.
-posts="$(grep -RnE '^\s*\.post\(' src/ | wc -l | tr -d ' ')"
+posts="$(grep -RnE '\.post\(' src/ | wc -l | tr -d ' ')"
 if [[ "$posts" -ne 1 ]]; then
   fail "expected exactly one HTTP request site (.post) in src/, found $posts"
 fi
