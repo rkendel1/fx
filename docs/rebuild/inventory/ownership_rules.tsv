@@ -1,0 +1,153 @@
+# Ordered ownership rules for docs/rebuild/tools/generate_inventory.py.
+# The longest matching prefix wins. Every tracked file must match one rule.
+# Columns: prefix, capability ID (see docs/rebuild/CAPABILITIES.md), proposed owner, disposition, note.
+# Owners: FX, Easy-LLM, Chip, Compute, Attn, fx-shell (the current product CLI/TUI; see OD-1), repo (repository operations).
+# Dispositions: KEEP, REBUILD, MOVE, REMOVE, INVESTIGATE (see docs/rebuild/README.md).
+prefix	capability	owner	disposition	note
+.github/ISSUE_TEMPLATE/	OPS-REPO	repo	KEEP	issue intake form
+.github/actions/setup-pgso/	OPS-PGSO	fx-shell	INVESTIGATE	PGSO toolchain for the 7.8 MiB fx binary; only relevant if the shell binary survives
+.github/workflows/bench.yml	OPS-BENCH	fx-shell	REBUILD	startup budgets measure the CLI; Vercel Blob upload is removed
+.github/workflows/binary-size.yml	OPS-SIZE	repo	KEEP	retarget at FX core artifacts
+.github/workflows/cdn-backfill.yml	OPS-RELEASE	repo	REMOVE	backfills Vercel-hosted CDN/Blob release assets
+.github/workflows/ci.yml	OPS-CI	repo	REBUILD	PR CI; drop PGSO corpus gate when the shell leaves
+.github/workflows/dev-release.yml	OPS-RELEASE	repo	REBUILD	dev channel publishes to Vercel Blob/CDN
+.github/workflows/full-ci.yml	OPS-CI	repo	REBUILD	four-runner matrix is retained; AI_GATEWAY_API_KEY/VERCEL_OIDC_TOKEN blanking disappears
+.github/workflows/pgso-macos-arm64.yml	OPS-PGSO	fx-shell	INVESTIGATE	release qualification of the shell binary
+.github/workflows/prepare-release.yml	OPS-RELEASE	repo	REBUILD	changelog drafting calls Vercel AI Gateway; must use Easy-LLM or a human
+.github/workflows/publish-libfx.yml	OPS-RELEASE	FX	REBUILD	npm publish of libfx; package contents change to the inference core
+.github/workflows/release.yml	OPS-RELEASE	repo	REBUILD	GitHub release plus Vercel Blob/CDN upload; CDN step removed or rehosted
+.gitignore	OPS-REPO	repo	KEEP
+AGENTS.md	DOC	repo	REBUILD	rewritten for the new module boundaries
+CHANGELOG.md	DOC	repo	KEEP	history is retained
+CONTRIBUTING.md	DOC	repo	REBUILD	build and ownership rules change
+LICENSE	DOC	repo	KEEP	Apache-2.0
+README.md	DOC	repo	REBUILD	login/setup/Gateway instructions removed
+THIRD_PARTY_NOTICES.md	DOC	repo	KEEP	re-audit when vendored tables move
+benchmarks/	OPS-BENCH	fx-shell	INVESTIGATE	CLI/TUI benchmarks; inference core needs its own micro-benchmarks
+build.zig	OPS-BUILD	FX	REBUILD	build graph shrinks to core lib, napi, wasm, tests
+build.zig.zon	OPS-BUILD	FX	KEEP	no dependencies; placeholder version
+scripts/__init__.py	OPS-SIZE	repo	KEEP
+scripts/binary_size.py	OPS-SIZE	repo	KEEP
+scripts/check-public-surface.sh	OPS-CI	repo	KEEP	leak audit stays useful
+scripts/pgso/	OPS-PGSO	fx-shell	INVESTIGATE	profile-guided build of the shell binary
+scripts/tests/	OPS-SIZE	repo	KEEP
+sdk/AGENTS.md	DOC	FX	REBUILD	SDK guidance follows the new inference API
+sdk/NAPI.md	EMB-NAPI	FX	REBUILD	security model (canonical endpoint gating) is replaced by capability binding
+sdk/README.md	EMB-SDK	FX	REBUILD	Gateway credential requirement removed
+sdk/browser-test-terminal.html	EMB-TERM	fx-shell	MOVE	terminal embedding demo
+sdk/browser.js	EMB-SDK	FX	REBUILD	browser entry: agent API moves to Chip; inference API is new
+sdk/fx-sdk.js	EMB-SDK	FX	REBUILD	WASM host layer: fetch/env/storage bridges; ACP agent wrapper moves to Chip
+sdk/index.html	EMB-SDK	FX	REMOVE	core debugger page bound to ACP agent surface
+sdk/node.js	EMB-SDK	FX	REBUILD	native-first loader is retained; agent API moves to Chip
+sdk/node/	EMB-TERM	fx-shell	MOVE	xterm/terminal SDK tests
+sdk/package.json	EMB-SDK	FX	REBUILD	exports reshaped
+sdk/scripts/package-libfx.mjs	OPS-RELEASE	FX	REBUILD
+sdk/scripts/package-term-demo.mjs	EMB-TERM	fx-shell	MOVE
+sdk/term-demo.html	EMB-TERM	fx-shell	MOVE
+sdk/tests/	EMB-SDK	FX	REBUILD	lifecycle/cancel/worker/security cases are the seed of runtime conformance
+sdk/tests/test-term	EMB-TERM	fx-shell	MOVE
+sdk/tests/test-core-live.mjs	EMB-SDK	FX	REBUILD	live Gateway smoke becomes optional Easy-LLM smoke
+src/acp/	EMB-ACP	Chip	MOVE	ACP is an agent protocol (sessions, prompts, permissions)
+src/benchmark_exports.zig	OPS-BENCH	fx-shell	INVESTIGATE
+src/builtins/browser_workspace_tools.zig	AGT-TOOLS	Chip	MOVE
+src/builtins/commands.zig	PRD-CLI	fx-shell	INVESTIGATE
+src/builtins/context.zig	AGT-CONTEXT	Chip	MOVE	system prompt and project-instruction assembly
+src/builtins/devbox.zig	EXE-REMOTE	Compute	MOVE	remote execution environment
+src/builtins/gateway.zig	INF-BIND	FX	REBUILD	composition of the Gateway provider; becomes Easy-LLM capability binding
+src/builtins/gateway/permission_reviewer.zig	AGT-PERM	Chip	MOVE	model-backed auto permission review is an agent policy that consumes inference
+src/builtins/hooks.zig	AGT-HOOKS	Chip	MOVE
+src/builtins/hooks/	AGT-HOOKS	Chip	MOVE
+src/builtins/mcp.zig	AGT-MCP	Chip	MOVE
+src/builtins/modes.zig	AGT-MODES	Chip	MOVE
+src/builtins/skills.zig	AGT-SKILLS	Chip	MOVE
+src/builtins/tools.zig	AGT-TOOLS	Chip	MOVE	default tool specs
+src/core/agent/	AGT-LOOP	Chip	MOVE	agent loop, recovery, presentation
+src/core/agent/runtime/assistant_stream.zig	INF-STREAM	FX	REBUILD	stream accumulation into content/reasoning/tool-call proposals is inference behavior; agent bookkeeping moves to Chip
+src/core/agent/runtime/gateway_step.zig	INF-EXEC	FX	REBUILD	one model attempt: build, stream, classify; the step loop around it moves to Chip
+src/core/agent/runtime/model_response_recovery.zig	INF-ERR	FX	REBUILD	response classification is FX; the retry decision is Chip policy
+src/core/agent/runtime/tests/gateway_flow.zig	INF-EXEC	FX	REBUILD	behavior fixtures for one attempt; agent-loop cases move with Chip
+src/core/agent/stream_provider.zig	INF-SEAM	FX	REBUILD	the existing provider seam; basis of the inference contract
+src/core/app/	PRD-APP	fx-shell	INVESTIGATE	composition of the interactive product
+src/core/app/model_cache_runtime.zig	PRV-CATALOG	Easy-LLM	MOVE	model list caching and filtering
+src/core/auth/	PRV-AUTH	Easy-LLM	MOVE	credential resolution belongs to Easy-LLM
+src/core/auth/js_host_auth.zig	PRV-AUTH	Easy-LLM	REMOVE	browser device-login bridge for Vercel OAuth
+src/core/auth/login_flow.zig	PRV-AUTH	Easy-LLM	REMOVE	Vercel device login; no FX replacement
+src/core/auth/oauth.zig	PRV-AUTH	Easy-LLM	REMOVE	Vercel OAuth client
+src/core/auth/oauth_session.zig	PRV-AUTH	Easy-LLM	REMOVE	Vercel OAuth session refresh and team selection
+src/core/auth/oauth_transport.zig	PRV-AUTH	Easy-LLM	REMOVE
+src/core/auth/secret.zig	SHR-SECRET	FX	KEEP	secret wrapper used for redaction; generic
+src/core/background/	EXE-PROC	Compute	MOVE	background process lifecycle
+src/core/cli/	PRD-CLI	fx-shell	INVESTIGATE
+src/core/config/	PRD-CONFIG	fx-shell	INVESTIGATE	profile settings for the product shell
+src/core/config/agent_steps.zig	AGT-LOOP	Chip	MOVE	FX_MAX_AGENT_STEPS
+src/core/config/context_limits.zig	AGT-CONTEXT	Chip	MOVE
+src/core/config/model_capabilities.zig	INF-OPTIONS	FX	REBUILD	generation options are FX; provider-specific option mapping moves to Easy-LLM
+src/core/execution/	EXE-PROC	Compute	MOVE	command execution and process trees
+src/core/execution/devbox_executor.zig	EXE-REMOTE	Compute	MOVE
+src/core/feedback/	PRD-FEEDBACK	fx-shell	REMOVE	fx.sh feedback URL
+src/core/gateway/	PRV-GATEWAY	Easy-LLM	MOVE
+src/core/gateway/gateway_failure_diagnostics.zig	INF-ERR	FX	REBUILD
+src/core/gateway/gateway_json.zig	INF-WIRE	FX	REBUILD	canonical request encoding and stream-event decoding; Gateway-specific fields move to Easy-LLM
+src/core/gateway/gateway_provider.zig	INF-BIND	FX	REBUILD	provider composition; becomes the Easy-LLM binding
+src/core/github/	AGT-TOOLS	Chip	MOVE	pr/issue drafting commands
+src/core/hooks/	AGT-HOOKS	Chip	MOVE
+src/core/hosts/	EMB-HOST	FX	REBUILD	host capability abstraction (native/wasm); narrowed to what inference needs
+src/core/hosts/js_host_url_opener.zig	PRV-AUTH	Easy-LLM	REMOVE	only used by login flows
+src/core/hosts/js_host_workspace.zig	EXE-WORKSPACE	Compute	MOVE	browser workspace exec contract
+src/core/hosts/native_keychain.zig	PRV-AUTH	Easy-LLM	MOVE	credential storage
+src/core/hosts/native_secret_store.zig	PRV-AUTH	Easy-LLM	MOVE
+src/core/hosts/url_opener.zig	PRV-AUTH	Easy-LLM	REMOVE
+src/core/images/	INF-CONTENT	FX	REBUILD	image content parts; attachment discovery is Chip
+src/core/input/	PRD-TUI	fx-shell	INVESTIGATE	composer editing
+src/core/mcp/	AGT-MCP	Chip	MOVE
+src/core/mcp/model_catalog.zig	PRV-CATALOG	Easy-LLM	INVESTIGATE	MCP sampling model hints
+src/core/modes/	AGT-MODES	Chip	MOVE
+src/core/mods/	PRD-APP	fx-shell	INVESTIGATE
+src/core/notifications/	PRD-TUI	fx-shell	INVESTIGATE	sounds
+src/core/output/	PRD-OUTPUT	fx-shell	INVESTIGATE	text/JSON snapshot contracts for the CLI
+src/core/permissions/	AGT-PERM	Chip	MOVE	tool admission and approval policy
+src/core/permissions/sandbox.zig	EXE-SANDBOX	Compute	MOVE	OS sandbox selection and enforcement
+src/core/session/	AGT-SESSION	Chip	MOVE	session persistence and usage ledgers
+src/core/session/generation_fact_codec.zig	INF-USAGE	FX	REBUILD	persisted usage facts define the metadata FX must surface
+src/core/session/generation_usage_provider.zig	INF-USAGE	Easy-LLM	MOVE	post-hoc Gateway generation lookup
+src/core/shared/	SHR-UTIL	FX	KEEP	generic helpers; individually narrowed when the core is cut
+src/core/shared/darwin_process_spawn.zig	EXE-PROC	Compute	MOVE
+src/core/shared/debug_trace.zig	OBS-DIAG	FX	REBUILD	trace context and redaction
+src/core/shared/display_width.zig	PRD-TUI	fx-shell	INVESTIGATE
+src/core/shared/gateway_error_format.zig	INF-ERR	FX	REBUILD	user-facing error text from provider failures
+src/core/shared/types.zig	INF-CONTRACT	FX	REBUILD	ChatMessage/ToolCall/GatewayCompletion; agent-only types move to Chip
+src/core/shared/unicode_display_data.zig	PRD-TUI	fx-shell	INVESTIGATE	generated width tables
+src/core/shell_command/	EXE-PROC	Compute	MOVE	command lexing and effect classification
+src/core/skills/	AGT-SKILLS	Chip	MOVE
+src/core/slash_commands/	PRD-CLI	fx-shell	INVESTIGATE
+src/core/subagent/	AGT-SUBAGENT	Chip	MOVE
+src/core/tasks/	AGT-LOOP	Chip	MOVE
+src/core/terminal/	EXE-TERM	Compute	MOVE	hosted terminal sessions and the terminal engine
+src/core/tooling/	AGT-TOOLS	Chip	MOVE	tool contracts, admission, dispatch
+src/core/tooling/gateway_schema.zig	INF-TOOLS	FX	REBUILD	tool-definition schema encoding for requests
+src/core/tooling/model_request_budget.zig	INF-EXEC	FX	REBUILD	request-size budget
+src/core/tooling/web_search_provider.zig	AGT-WEB	Chip	MOVE
+src/core/workspace/	AGT-CONTEXT	Chip	MOVE	workspace access and file index used by tools
+src/core/workspace/record_tape.zig	PRD-TUI	fx-shell	INVESTIGATE	FX_RECORD tapes
+src/gateway/client.zig	INF-STREAM	FX	REBUILD	SSE decoding is FX; HTTP transport, endpoints, headers, credentials move to Easy-LLM
+src/gateway/generation_usage.zig	INF-USAGE	Easy-LLM	MOVE	Gateway generation-cost lookup
+src/gateway/host_stream_provider.zig	INF-BIND	FX	REBUILD	host-supplied transport; closest existing shape to a capability binding
+src/gateway/js_host_model_catalog.zig	PRV-CATALOG	Easy-LLM	MOVE
+src/gateway/js_host_stream_provider.zig	INF-BIND	FX	REBUILD
+src/gateway/web_search.zig	AGT-WEB	Chip	MOVE
+src/gateway/web_search_types.zig	AGT-WEB	Chip	MOVE
+src/main.zig	PRD-APP	fx-shell	INVESTIGATE	composition root and version
+src/mcp_test_exports.zig	AGT-MCP	Chip	MOVE
+src/napi_core_main.zig	EMB-NAPI	FX	REBUILD	N-API root: replace ACP agent surface with inference API
+src/napi_fetch_state.zig	EMB-NAPI	FX	REBUILD	host fetch bridge for N-API
+src/terminal_client_fixture.zig	EXE-TERM	Compute	MOVE
+src/tools/	AGT-TOOLS	Chip	MOVE	built-in tools
+src/tools/terminal/	EXE-TERM	Compute	MOVE	terminal tool fronts Compute-owned sessions
+src/tools/shell/	EXE-PROC	Compute	MOVE
+src/ui/	PRD-TUI	fx-shell	INVESTIGATE	inline terminal UI
+src/wasm_core_main.zig	EMB-WASM	FX	REBUILD	WASM core root: replace ACP agent surface with inference API
+src/wasm_term_main.zig	EMB-TERM	fx-shell	MOVE	interactive terminal in WASM
+tests/e2e/	OPS-TEST-E2E	fx-shell	INVESTIGATE	CLI/TUI/ACP behavior; classified per file in the behavior matrix
+tests/evals/	OPS-EVALS	Chip	MOVE	agent-quality evals that require AI_GATEWAY_API_KEY
+tests/json-schema/	AGT-MCP	Chip	MOVE	JSON Schema validator conformance for MCP/tool schemas
+src/core/upgrade/	PRD-UPGRADE	fx-shell	REMOVE	self-upgrade from the Vercel-hosted CDN channel
