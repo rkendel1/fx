@@ -249,6 +249,8 @@ Inside the loop:
 
 The completed outcome is classified by `classify` into `Complete`, `ToolProposals`, `LengthLimited`, `ProviderFailure` or `InvalidCompletion` (oracle `classifyProviderCompletion`; `tool_calls` with nothing proposed and proposals with `stop`/`other` are invalid). Per-proposal `ProposalCheck { identity, integrity, source }` and the disposition are returned in `ExecutionReport` alongside the outcome; their wire encoding is deferred to R4 with the adapters. `admit_proposals` performs the oracle's structural admission; it grants no permission.
 
+**Resumable execution (R4).** `execute` is a loop over `fx_core::Execution`, the same state machine as a type: `step` runs validation, the cancel check and start on the first call and one cancel check and one poll on each later call, returning `Progress`, `Idle` (nothing available; the caller decides), `Done(report)` once, or `Finished`. `cancel` ends the attempt as cancelled. A host that cannot block, such as a WebAssembly module whose data arrives from an event loop, calls `step` and returns to its own loop on `Idle`. `fx_core::encode_report` gives the report its JSON encoding. Both paths share this code (HOST_BRIDGE.md).
+
 **Cancellation and budget limits.** The core has no clock, thread or async runtime, so:
 
 - cancellation is observed at three points only: before `start`, between polls, and through the host's `Flow::Stop`. A `poll` that blocks delays cancellation until it returns; the capability contract requires `poll` and `cancel` not to block indefinitely;
@@ -260,7 +262,9 @@ The completed outcome is classified by `classify` into `Complete`, `ToolProposal
 
 **Diagnostics** (`rust/fx-core/src/diagnostics.rs`). Bounded metadata only: request id, a content-free `RequestShape` (message counts per role, part counts by type, tool count, tool-choice and format flags, budget), the `TerminalCause`, final delivery, start, poll, cancel and close counts, event, forwarded and anomaly counts, and text, reasoning and tool-input byte counts. No prompt, image byte, tool argument, tool result, provider detail or credential is ever copied into it.
 
-### Primitive C: Runtime Adapters (R4)
+### Primitive C: Runtime Adapters (R4, see HOST_BRIDGE.md)
+
+**As built in R4:** one WebAssembly module (`rust/fx-host`, imports nothing, message protocol over `fx_begin` / `fx_command`) driven by a host package (`host/node`) that runs Easy-LLM's `generateOnce` / `streamOnce`. An N-API addon was not built; the list below is the original plan, kept for the options it still describes.
 
 Shared rule: adapters translate types and lifetimes only. They do not add retries, defaults or validation beyond the executor's, they reuse `wire.rs` for JSON, and they run the same fixtures (`rust/fx-core/tests/fixtures/contract/` and `rust/fx-core/tests/fixtures/executor/`).
 

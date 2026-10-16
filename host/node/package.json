@@ -1,0 +1,25 @@
+{
+  "name": "fx-host-node",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Run FX requests through the Rust executor (WebAssembly) against an explicit Easy-LLM provider",
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": { "node": ">=22" },
+  "main": "./src/index.js",
+  "exports": { ".": "./src/index.js" },
+  "files": ["src", "README.md"],
+  "scripts": {
+    "build:wasm": "cargo build --manifest-path ../../rust/fx-host/Cargo.toml --locked --release --target wasm32-unknown-unknown",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "node scripts/lint.mjs",
+    "test": "node --test --test-reporter=spec \"test/*.test.mjs\"",
+    "example:mock": "node examples/mock-openai.mjs",
+    "example:live": "node examples/live-smoke.mjs"
+  },
+  "devDependencies": {
+    "@easy-llm/llm": "git+https://github.com/rkendel1/llm.git#e27f25e0e83ff092455f5542255bc607167958fe",
+    "@types/node": "22.15.3",
+    "typescript": "5.9.3"
+  }
+}

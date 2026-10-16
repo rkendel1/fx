@@ -266,3 +266,34 @@ Tests are in `rust/fx-single-attempt/tests/adapter.rs` and run `fx_core::execute
 | No ambient authority, one dependency (`fx-core`), no global mutable state; builds for `wasm32-unknown-unknown` | invariant 9, BM-16 (prerequisite) | `rust/fx-single-attempt/check-boundaries.sh`; CI job "Rust single-attempt adapter" |
 
 Not covered until R4: the port implemented over the real TypeScript operation, and shared fixtures run through it (BM-13 optional smoke, BM-14).
+
+## 11. R4 host bridge test map
+
+Offline and deterministic. Rust: `rust/fx-core/tests/execution_steps.rs`, `rust/fx-host/tests/{conformance,session}.rs`. Node: `host/node/test/`. The 26 host fixtures in `rust/fx-host/tests/fixtures/conformance/` run natively and on WebAssembly; CI requires identical responses. See [HOST_BRIDGE.md](HOST_BRIDGE.md).
+
+| Behavior | Matrix link | Tests |
+| --- | --- | --- |
+| Stepping the executor equals `execute` (reports, events, capability call counts) | BM-17 | `execution_steps::stepping_matches_execute_for_every_scenario`, `an_idle_step_returns_control_without_touching_the_capability_again` |
+| Cancel at an idle step, before the first step, between steps; nothing after the report | BM-08, C1-C5 | `cancelling_at_an_idle_step_...`, `cancelling_before_the_first_step_never_starts_the_capability`, `a_host_cancel_between_steps_is_honored_before_the_next_poll`, `no_event_is_forwarded_after_the_report` |
+| The report encodes outcome, checks, disposition and diagnostics, with no content | BM-15 | `the_report_encodes_...`, `terminal_causes_carry_a_detail_only_where_they_have_one`, `the_report_never_contains_request_or_output_content_beyond_the_outcome`, `the_outcome_inside_a_report_is_the_standalone_outcome_encoding` |
+| Valid request reaches the provider once; invalid, undecodable and duplicate-key requests never do | BM-01, BM-07 | fixtures `streaming_text_completes`, `invalid_request_is_never_invoked`, `undecodable_document_is_never_invoked`; bridge `a valid request reaches the selected provider once`, `an invalid request is rejected before the provider is invoked`, `the bridge cannot be used to bypass validation` |
+| Unsupported features fail before dispatch (no HTTP request) | BM-07, BM-13 | fixtures `unsupported_feature_is_refused_before_dispatch`, `tools_are_refused_when_the_provider_path_cannot_carry_them`; bridge `requests the provider path cannot carry fail before dispatch`; real adapter `requests the adapter cannot carry never reach the network` |
+| Provider failure is the outcome: no retry, no fallback; status and retry-after kept; category never from text | BM-06 | fixtures `provider_failure_is_not_retried_or_redirected`, `error_without_status_is_not_guessed_from_text`; bridge `a provider failure is returned as the outcome`; real adapter `a 429 ... not retried`, `a 401 ... not the text` |
+| Text, ordered deltas, usage and finish reason | BM-01, BM-02, BM-05 | fixtures `streaming_text_completes`, `unverified_done_with_a_reason_completes`; bridge `streamed deltas arrive in order`; real adapter streaming and collected completions |
+| Empty, incomplete and unverified streams are never successes; partial output kept | BM-10, I3 | fixtures `empty_stream_is_incomplete_not_a_success`, `unverified_done_without_a_reason_is_interrupted`, `failure_after_partial_output_keeps_the_partial`; bridge and real adapter `truncated`, `reset` |
+| Malformed provider output | BM-10 | fixture `malformed_provider_output_is_a_protocol_violation`; bridge `malformed provider output is a protocol violation` |
+| Cancel before invocation sends nothing; after invocation never "unsent"; mid-stream keeps delivery and partial output | BM-08, invariant 4 | fixtures `cancel_before_invocation_sends_nothing`, `cancel_after_invocation_is_never_reported_as_unsent`, `cancel_during_the_stream_...`; bridge cancel tests (including cancel while awaiting the first event and a collected call) |
+| Abort reaches the provider and closes the HTTP connection; the budget does too | BM-08, C7 | bridge `cancelling mid-stream ... reaches the provider`; real adapter `cancelling closes the HTTP connection`, `the attempt budget cancels the HTTP request` |
+| Transport closure when the host can observe it | BM-08 | fixture `cancel_is_confirmed_only_when_the_host_saw_the_transport_close` (native and WebAssembly); never produced by the Node host (documented) |
+| A provider that ignores the abort cannot hold the attempt open; the limitation is reported | BM-08 | bridge `a provider that ignores the abort ...` |
+| Delivery only moves forward | I9 | fixture `delivery_never_decreases`; bridge `delivery only moves forward` |
+| Nothing after the terminal state | I1, I2 | fixture `chunks_and_cancels_after_the_end_are_ignored`; `session::the_final_response_is_cached_and_nothing_follows_it` |
+| Credentials, prompts and affinity keys never appear in the result | BM-15 | fixture `diagnostics_carry_no_prompt_or_credential`; bridge `credentials and prompts do not appear`; real adapter (the key reaches the endpoint, not the result) |
+| No ambient authority: no imports; a module requesting imports is refused | BM-16, invariant 9 | bridge `the module has no imports`, `a module that asks for host imports is refused`, `a module missing required exports is refused`; `check-boundaries.sh`; `host/node` lint |
+| Tool proposals are data and nothing executes | BM-04, invariant 5 | fixture `tool_calls_are_data_never_executed`; bridge `tool-call proposals are data; nothing is executed` |
+| Protocol misuse is rejected without effect and without echo | host protocol | fixtures `step_before_invocation_result_is_a_protocol_error`, `malformed_and_unknown_commands_are_rejected_without_effect`; `session::error_responses_never_echo_the_command`, `an_oversized_command_is_rejected_without_being_parsed`, and the ordering tests |
+| Independent and concurrent attempts | BM-11 | `session::many_sessions_share_nothing`, `conformance::sessions_are_independent`; bridge `concurrent attempts are independent`; abi `sessions in one instance are independent` |
+| ABI: versions, memory growth, large requests, freed handles, repeated create and free | BM-12 (analogue) | `host/node/test/abi.test.mjs` |
+| Native and WebAssembly give identical responses for every shared fixture | BM-14 | CI: native run records `FX_CONFORMANCE_OUT`; `conformance.test.mjs` compares with `FX_CONFORMANCE_NATIVE`; corrupting one response fails the run |
+
+Not covered: ABI fuzzing, performance and memory-ceiling tests, a live provider, an N-API or browser host, any adapter other than OpenAI end to end.

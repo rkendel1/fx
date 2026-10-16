@@ -42,7 +42,9 @@ pub mod wire;
 pub use capability::{AttemptContext, CancelStatus, Capability, PollBatch, Started, StreamState};
 pub use contract::*;
 pub use diagnostics::{Diagnostics, RequestShape, TerminalCause};
-pub use executor::{ExecutionReport, Flow, Host, NoHost, execute, execute_document};
+pub use executor::{
+    Execution, ExecutionReport, Flow, Host, NoHost, Step, execute, execute_document,
+};
 pub use normalize::{
     AdmissionError, AdmissionRejection, ArgumentIntegrity, ArgumentSource, Disposition, Normalizer,
     ProposalCheck, ProposalIdentity, Pushed, Violation, admit_proposals, classify,
@@ -53,5 +55,5 @@ pub use validate::{
 pub use wire::{
     DecodeError, DecodeErrorKind, RequestRejection, decode_capability_error, decode_event,
     decode_outcome, decode_request, encode_capability_error, encode_event, encode_outcome,
-    encode_request, parse_request,
+    encode_report, encode_request, parse_request,
 };

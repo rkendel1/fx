@@ -32,6 +32,11 @@ use crate::contract::{
     RequestId, ResponseFormat, Role, Speed, ToolCallProposal, ToolChoice, ToolDefinition,
     ToolExecution, ToolOutput, ToolResult, Usage,
 };
+use crate::diagnostics::TerminalCause;
+use crate::executor::ExecutionReport;
+use crate::normalize::{
+    ArgumentIntegrity, ArgumentSource, Disposition, ProposalCheck, ProposalIdentity,
+};
 use crate::validate::validate_event_bounds;
 
 /// Category of a decoding failure.
@@ -1185,9 +1190,8 @@ pub fn decode_outcome(bytes: &[u8], limits: &Limits) -> Result<Outcome, DecodeEr
     })
 }
 
-/// Encodes an outcome document.
-pub fn encode_outcome(outcome: &Outcome) -> Vec<u8> {
-    let doc = match outcome {
+fn outcome_doc(outcome: &Outcome) -> OutcomeDoc {
+    match outcome {
         Outcome::Completed(c) => OutcomeDoc::Completed(CompletionDoc {
             content: c.content.clone(),
             content_truncated: c.content_truncated,
@@ -1219,9 +1223,186 @@ pub fn encode_outcome(outcome: &Outcome) -> Vec<u8> {
             },
             partial: partial_to(&c.partial),
         }),
-    };
+    }
+}
+
+/// Encodes an outcome as a version-1 JSON document.
+pub fn encode_outcome(outcome: &Outcome) -> Vec<u8> {
     encode_document(&OutcomeEnvelope {
         v: CONTRACT_VERSION,
-        outcome: doc,
+        outcome: outcome_doc(outcome),
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Execution report (output only)
+
+#[derive(Serialize)]
+struct CheckDoc {
+    identity: &'static str,
+    integrity: &'static str,
+    source: &'static str,
+}
+
+#[derive(Serialize)]
+struct TerminalDoc {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ShapeDoc {
+    messages_by_role: [u32; 4],
+    text_parts: u32,
+    image_parts: u32,
+    tool_call_parts: u32,
+    tool_result_parts: u32,
+    tools: u32,
+    tool_choice: u8,
+    response_format: bool,
+    budget: bool,
+}
+
+#[derive(Serialize)]
+struct DiagnosticsDoc {
+    request_id: Option<String>,
+    request_shape: Option<ShapeDoc>,
+    terminal: TerminalDoc,
+    delivery: DeliveryDoc,
+    starts: u32,
+    polls: u64,
+    cancels: u32,
+    closes: u32,
+    events: u64,
+    forwarded: u64,
+    anomalies: u32,
+    text_bytes: u64,
+    reasoning_bytes: u64,
+    tool_input_bytes: u64,
+}
+
+#[derive(Serialize)]
+struct ReportDoc {
+    outcome: OutcomeDoc,
+    proposal_checks: Vec<CheckDoc>,
+    disposition: Option<&'static str>,
+    diagnostics: DiagnosticsDoc,
+}
+
+#[derive(Serialize)]
+struct ReportEnvelope {
+    v: u32,
+    report: ReportDoc,
+}
+
+/// `CamelCase` variant names (from `Debug`, unit variants only) to `snake_case`.
+fn snake(debug: &str) -> String {
+    let name = debug.split(['(', ' ', '{']).next().unwrap_or(debug);
+    let mut out = String::with_capacity(name.len() + 4);
+    for (i, c) in name.chars().enumerate() {
+        if c.is_ascii_uppercase() {
+            if i > 0 {
+                out.push('_');
+            }
+            out.push(c.to_ascii_lowercase());
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn terminal_doc(cause: TerminalCause) -> TerminalDoc {
+    let (kind, detail) = match cause {
+        TerminalCause::Finished => ("finished", None),
+        TerminalCause::InvalidRequest(code) => {
+            ("invalid_request", Some(snake(&format!("{code:?}"))))
+        }
+        TerminalCause::CancelledBeforeStart => ("cancelled_before_start", None),
+        TerminalCause::StartFailed => ("start_failed", None),
+        TerminalCause::PollFailed => ("poll_failed", None),
+        TerminalCause::EndedWithoutFinish => ("ended_without_finish", None),
+        TerminalCause::BatchTooLarge => ("batch_too_large", None),
+        TerminalCause::TooManyPolls => ("too_many_polls", None),
+        TerminalCause::Violation(v) => ("violation", Some(snake(&format!("{v:?}")))),
+        TerminalCause::Cancelled => ("cancelled", None),
+        TerminalCause::Abandoned => ("abandoned", None),
+    };
+    TerminalDoc { kind, detail }
+}
+
+fn check_doc(check: &ProposalCheck) -> CheckDoc {
+    CheckDoc {
+        identity: match check.identity {
+            ProposalIdentity::Valid => "valid",
+            ProposalIdentity::EmptyId => "empty_id",
+            ProposalIdentity::DuplicateId => "duplicate_id",
+            ProposalIdentity::ConflictingStreamedName => "conflicting_streamed_name",
+        },
+        integrity: match check.integrity {
+            ArgumentIntegrity::Valid => "valid",
+            ArgumentIntegrity::Replaced => "replaced",
+        },
+        source: match check.source {
+            ArgumentSource::Final => "final",
+            ArgumentSource::StreamedFallback => "streamed_fallback",
+            ArgumentSource::Missing => "missing",
+        },
+    }
+}
+
+fn disposition_name(disposition: Disposition) -> &'static str {
+    match disposition {
+        Disposition::Complete => "complete",
+        Disposition::ToolProposals => "tool_proposals",
+        Disposition::LengthLimited => "length_limited",
+        Disposition::ProviderFailure => "provider_failure",
+        Disposition::InvalidCompletion => "invalid_completion",
+    }
+}
+
+/// Encodes an execution report as a version-1 JSON document: the outcome (same shape
+/// as [`encode_outcome`]), per-proposal checks, the disposition and content-free
+/// diagnostics. Output only; hosts read it, nothing decodes it back.
+pub fn encode_report(report: &ExecutionReport) -> Vec<u8> {
+    let d = &report.diagnostics;
+    let diagnostics = DiagnosticsDoc {
+        request_id: d
+            .request_id
+            .map(|id| id.0.iter().map(|b| format!("{b:02x}")).collect()),
+        request_shape: d.request_shape.map(|s| ShapeDoc {
+            messages_by_role: s.messages_by_role,
+            text_parts: s.text_parts,
+            image_parts: s.image_parts,
+            tool_call_parts: s.tool_call_parts,
+            tool_result_parts: s.tool_result_parts,
+            tools: s.tools,
+            tool_choice: s.tool_choice,
+            response_format: s.response_format,
+            budget: s.budget,
+        }),
+        terminal: terminal_doc(d.terminal),
+        delivery: delivery_to(d.delivery),
+        starts: d.starts,
+        polls: d.polls,
+        cancels: d.cancels,
+        closes: d.closes,
+        events: d.events,
+        forwarded: d.forwarded,
+        anomalies: d.anomalies,
+        text_bytes: d.text_bytes,
+        reasoning_bytes: d.reasoning_bytes,
+        tool_input_bytes: d.tool_input_bytes,
+    };
+    encode_document(&ReportEnvelope {
+        v: CONTRACT_VERSION,
+        report: ReportDoc {
+            outcome: outcome_doc(&report.outcome),
+            proposal_checks: report.proposal_checks.iter().map(check_doc).collect(),
+            disposition: report.disposition.map(disposition_name),
+            diagnostics,
+        },
     })
 }

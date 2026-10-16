@@ -1,6 +1,6 @@
 # Single-attempt provider invocation (R3)
 
-R3 connects the FX capability boundary to a provider layer without moving any FX responsibility into it. This document records what the provider layer (Easy-LLM, `rkendel1/llm`) actually does today, what a lifecycle owner needs from it, and how `rust/fx-single-attempt` translates between the two. The Rust crate is the deliverable in this repository; the provider-side TypeScript operation it mirrors is proposed separately in [rkendel1/llm#13](https://github.com/rkendel1/llm/pull/13) (a draft, not merged at the time of writing).
+R3 connects the FX capability boundary to a provider layer without moving any FX responsibility into it. This document records what the provider layer (Easy-LLM, `rkendel1/llm`) actually does today, what a lifecycle owner needs from it, and how `rust/fx-single-attempt` translates between the two. The Rust crate is the deliverable in this repository; the provider-side TypeScript operation it mirrors is in `rkendel1/llm` ([#13](https://github.com/rkendel1/llm/pull/13), merged; [#14](https://github.com/rkendel1/llm/pull/14) adds HTTP status, `Retry-After` and OpenAI-style stream finish reasons). The host that connects them is [HOST_BRIDGE.md](HOST_BRIDGE.md).
 
 ## Ownership
 
@@ -92,11 +92,11 @@ Delivery maps `NotInvoked`→`DefinitelyUnsent`, `Invoked`→`PossiblySent`, `Ou
 
 | Gap | Effect | Smallest change (provider layer) |
 | --- | --- | --- |
-| Errors carry no HTTP status or retry-after | `ProviderError` always maps to `Transport` | optional `status` and `retryAfterMs` on `ProviderError`, set from the response |
+| Errors carried no HTTP status or retry-after | `ProviderError` mapped to `Transport` | **Closed for received responses by rkendel1/llm#14** (`status`, `retryAfterMs`); a network failure still has neither and stays `Transport` |
 | No tool schemas are sent | tool use is refused | optional tool definitions with JSON schemas on the request |
 | No assistant tool-call history | multi-turn tool conversations are refused | `toolCalls` on assistant messages |
 | Raw tool-argument text lost on malformed JSON | the whole call fails as a provider error | keep the raw text instead of throwing |
-| Streams report no usage or finish reason; `done` is synthesized for three providers | streamed answers from them are `Unverified` | populate usage and finish on `done`; emit `done` only after the provider's marker |
+| Streams report no usage or finish reason; `done` is synthesized for three providers | streamed answers from them are `Unverified` | **Closed for OpenAI and OpenRouter by rkendel1/llm#14** (finish reason, and usage when sent). Still open for Google (every stream ends interrupted), Anthropic and Ollama |
 | No generation options transported | requests with them are refused | forward them |
 | No provider-executed tool records | none are produced | out of scope until a provider supports it |
 

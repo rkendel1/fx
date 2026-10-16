@@ -33,6 +33,12 @@ impl<P: ProviderPort> SingleAttemptCapability<P> {
         &self.port
     }
 
+    /// Mutably borrows the port. A host that feeds the port between executor steps (the
+    /// WebAssembly bridge) uses this; the executor itself never needs it.
+    pub fn port_mut(&mut self) -> &mut P {
+        &mut self.port
+    }
+
     /// Returns the port.
     pub fn into_port(self) -> P {
         self.port

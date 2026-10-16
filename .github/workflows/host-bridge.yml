@@ -1,0 +1,137 @@
+name: Host bridge
+
+# Gates for the FX host bridge: the Rust session and WebAssembly ABI (rust/fx-host) and
+# the Node host (host/node). Additive: the Zig, native, N-API, WASM SDK, Full CI and
+# Rust core workflows are unchanged. No job needs credentials or network access to a
+# model provider; the Node tests run the real Easy-LLM OpenAI adapter against a local mock.
+
+on:
+  push:
+    paths:
+      - "rust/**"
+      - "host/**"
+      - "rust-toolchain.toml"
+      - ".github/workflows/host-bridge.yml"
+  pull_request:
+    paths:
+      - "rust/**"
+      - "host/**"
+      - "rust-toolchain.toml"
+      - ".github/workflows/host-bridge.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: host-bridge-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  rust-host:
+    name: Rust host (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    defaults:
+      run:
+        working-directory: rust/fx-host
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned toolchain
+        working-directory: .
+        run: |
+          channel="$(sed -nE 's/^channel = "([^"]+)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal \
+            --component rustfmt,clippy --target wasm32-unknown-unknown
+          rustc --version
+          cargo --version
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Lint
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Test (session protocol and native conformance)
+        run: cargo test --locked
+
+      - name: Build native
+        run: cargo build --locked --release
+
+      - name: Build wasm32-unknown-unknown
+        run: cargo build --locked --release --target wasm32-unknown-unknown
+
+      - name: Dependency and source boundaries
+        run: ./check-boundaries.sh
+
+  node-host:
+    name: Node host (node ${{ matrix.node }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            node: "22"
+          - os: ubuntu-24.04
+            node: "24"
+          - os: macos-15
+            node: "22"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install pinned toolchain
+        run: |
+          channel="$(sed -nE 's/^channel = "([^"]+)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal \
+            --component rustfmt,clippy --target wasm32-unknown-unknown
+          rustc --version
+
+      # The lockfile records the Easy-LLM git dependency with an ssh URL. Public repository,
+      # no key: read it over https.
+      - name: Resolve git dependencies over https
+        run: |
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "git@github.com:"
+
+      - name: Install dependencies
+        working-directory: host/node
+        run: npm ci
+
+      - name: Type check
+        working-directory: host/node
+        run: npm run typecheck
+
+      - name: Lint
+        working-directory: host/node
+        run: npm run lint
+
+      - name: Build the WebAssembly module
+        working-directory: host/node
+        run: npm run build:wasm
+
+      - name: Native conformance (records the transcript)
+        working-directory: rust/fx-host
+        run: FX_CONFORMANCE_OUT="$RUNNER_TEMP/native-conformance.json" cargo test --locked --test conformance
+
+      - name: Node tests (WebAssembly conformance compared with the native transcript)
+        working-directory: host/node
+        run: FX_CONFORMANCE_NATIVE="$RUNNER_TEMP/native-conformance.json" npm test
+
+      - name: Example against the local mock provider
+        working-directory: host/node
+        run: npm run example:mock
