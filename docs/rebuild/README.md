@@ -8,9 +8,10 @@ This directory holds the architecture discovery and the rebuild plan for turning
 | --- | --- | --- |
 | R0 decomposition and language decision | Done. Rust is the implementation language (OD-9); the Zig code under `src/` is the behavioral oracle until R5 | this directory, [RUST_PRIMITIVES.md](RUST_PRIMITIVES.md), [DECISIONS.md](DECISIONS.md) |
 | R1 contract crate | Implemented | [`rust/fx-core`](../../rust/fx-core), test map in [BEHAVIOR_MATRIX.md](BEHAVIOR_MATRIX.md) §8, gates in `.github/workflows/rust-core.yml` |
-| R2–R6 | Planned | [ROADMAP.md](ROADMAP.md) |
+| R2 | Executor, capability trait, normalizer and fake capability in `rust/fx-core` (this PR) | [ROADMAP.md](ROADMAP.md), [ARCHITECTURE.md](ARCHITECTURE.md) Primitive B |
+| R3–R6 | Planned | [ROADMAP.md](ROADMAP.md) |
 
-The decomposition documents changed no product code. R1 adds the Rust crate and its CI workflow; it does not touch any Zig source, product caller, public API, npm package or existing workflow.
+The decomposition documents changed no product code. R1 adds the Rust crate and its CI workflow, and R2 adds the executor to that crate; neither touches any Zig source, product caller, public API, npm package or existing workflow.
 
 Audited commit for the decomposition: `255c6cf125034baad48c99bd618783d63dab7df1` ([BASELINE.md](BASELINE.md)).
 
@@ -116,7 +117,7 @@ Reproduce the wire evidence: see [evidence/observed-wire.md](evidence/observed-w
 | Stream, cancellation, errors, lifecycle and metadata have explicit contracts | Done | §4 state machine and invariants I1-I10, §8 errors, §9 cancellation C1-C7 |
 | Native and WASM requirements grounded in actual capabilities | Done | §7: only remote inference exists today. CPU and accelerated modes are not promised |
 | Chip, Easy-LLM, Compute and Attn boundaries preserved | Done | §5-6; Attn and Compute have no edge into FX |
-| Every retained behavior has a conformance test or a documented gap | Done (tests specified; implementation lands in R1-R2) | [BEHAVIOR_MATRIX.md](BEHAVIOR_MATRIX.md) §2-3, gaps §7 |
+| Every retained behavior has a conformance test or a documented gap | Done (contract tests in R1, executor tests and fixtures in R2) | [BEHAVIOR_MATRIX.md](BEHAVIOR_MATRIX.md) §2-3, gaps §7 |
 | All proposed removals have consumer-impact analysis | Done | [VERCEL_TRACE.md](VERCEL_TRACE.md) §4 |
 | Roadmap has ordered, independently testable PRs | Done | [ROADMAP.md](ROADMAP.md) |
 | Working code, APIs, dependencies and runtime behavior unchanged | Done | Diff touches only `docs/rebuild/` |

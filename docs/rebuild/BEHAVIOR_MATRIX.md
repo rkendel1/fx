@@ -173,11 +173,72 @@ Every contract behavior introduced by R1 maps to a named deterministic test. Non
 
 | Gap | Oracle evidence | Owner and step |
 | --- | --- | --- |
-| Proposal identity and integrity annotations (`final_identity`, `provisional_id`, `argument_integrity`, `ProviderResultIdentityFailure`) on completed proposals | `types.zig:567-621`; `client.zig` identity tests | FX executor, R2 (normalizer output) |
-| Streamed-input fallback and changed-id reconciliation | `consumeSseStream reconciles ...` tests | FX executor, R2 |
-| Completion disposition (`classifyProviderCompletion`) and admission (`authoritativeToolAdmission`) | `types.zig:1123-1290` | FX executor, R2 |
+| Proposal identity and integrity annotations (`final_identity`, `provisional_id`, `argument_integrity`, `ProviderResultIdentityFailure`) on completed proposals | `types.zig:567-621`; `client.zig` identity tests | FX executor, R2 (normalizer output). Done in R2 as `ProposalCheck` (§9); wire encoding R4 |
+| Streamed-input fallback and changed-id reconciliation | `consumeSseStream reconciles ...` tests | FX executor. Exact-id fallback done in R2; changed-id reconciliation deferred (§9.4) |
+| Completion disposition (`classifyProviderCompletion`) and admission (`authoritativeToolAdmission`) | `types.zig:1123-1290` | FX executor. Done in R2 (`classify`, `admit_proposals`) |
 | 1,024-byte tool-description truncation | `gateway_schema.zig:3,61` | Easy-LLM adapter (provider shaping), R3. The contract only bounds descriptions at 64 KiB |
-| Generic `*_KEY=` secret heuristic (`matchesSensitiveAssignment`) | `text_utils.zig` | FX, R2 (diagnostics) |
+| Generic `*_KEY=` secret heuristic (`matchesSensitiveAssignment`) | `text_utils.zig` | Still open. R2 diagnostics carry no strings besides the request id, so the gap applies only to capability-supplied `Detail`; it moves to R3 with the first real capability |
 | Anthropic cache-breakpoint placement policy (`findCacheBreakpoint`) | `gateway_json.zig:752` | Easy-LLM, R3. The contract carries `CacheHint` per message |
 | Billing reconciliation by generation id | `generation_usage.zig` | Easy-LLM, R3. The contract carries opaque `generation_id` and `cost` |
-| Capability trait, bounded poll batches, cancel and close semantics | RUST_PRIMITIVES §6 | FX, R2 |
+| Capability trait, bounded poll batches, cancel and close semantics | RUST_PRIMITIVES §6 | FX. Done in R2 (§9) |
+
+## 9. R2 executor test map (Rust, `rust/fx-core`)
+
+Every executor behavior introduced by R2 maps to a named deterministic test in `rust/fx-core/tests/executor.rs` or to a fixture in `tests/fixtures/executor/` (run by `tests/executor_fixtures.rs`). Each fixture is a request, a fake-capability script and the expected outcome, forwarded events, disposition, proposal checks, admission result and call counts, all as contract JSON, and names the BM row and the oracle test it mirrors. No test needs a network, credentials, a clock or a live model.
+
+### 9.1 Behaviors and tests
+
+| Behavior | Matrix link | Tests and fixtures |
+| --- | --- | --- |
+| Invalid requests and undecodable documents never invoke the capability | BM-07, invariant 2 | `invalid_requests_never_invoke_the_capability`, `undecodable_documents_never_invoke_the_capability` |
+| At most one `start`, exactly one `close` after a successful start, no retry on start or poll failure | BM-06, C6 | `a_valid_request_starts_the_capability_exactly_once_and_closes_it_once`, `a_start_failure_is_not_retried_and_nothing_is_closed`, `a_poll_failure_is_not_retried_and_keeps_partial_output`; fixtures `unauthenticated_start_failure`, `rate_limited_after_send_is_not_retried`, `poll_failure_after_deltas_is_interrupted` (every fixture also checks the fake's counts and zero misuse) |
+| Independent and concurrent executions share nothing | BM-11 | `independent_executor_calls_have_independent_attempts`, `parallel_executions_are_isolated` (8 threads); `check-boundaries.sh` forbids global mutable state |
+| Budget and bounds reach the capability | BM-08 | `budget_and_bounds_are_passed_to_the_capability` |
+| Ordered forwarding, accumulation, reasoning forwarded but not retained | BM-01, BM-02 | `deltas_are_forwarded_in_order_and_accumulated`, `reasoning_is_forwarded_and_counted_but_not_retained`; fixture `text_deltas_complete` |
+| Exactly one terminal outcome; `finish` is terminal; later events dropped and never forwarded | I1, I2, A-3 | `finish_is_terminal_and_later_events_are_dropped_not_forwarded`; fixture `finish_is_terminal_late_events_dropped` |
+| End of stream without `finish` is interrupted with partial output, never a completion | BM-10, I3 | `a_stream_that_ends_without_finish_is_interrupted_with_partial_output`, `an_empty_stream_without_finish_has_no_partial_output`; fixture `eof_without_finish_keeps_partial` |
+| Empty answer with `finish` completes | BM-10 | `an_empty_answer_with_finish_completes`; fixture `empty_finish_completes` |
+| Completion disposition (oracle `classifyProviderCompletion`) | BM-05 | `classification_matches_the_oracle`; fixtures `content_filter_is_provider_failure`, `proposals_with_stop_are_invalid`, `usage_fields_merge_without_guessing` (length) |
+| Final arguments win; exact-id ended fallback only; open streams and conflicting names lend nothing | BM-04, I5 | `final_arguments_win_over_streamed_input`, `absent_arguments_fall_back_to_an_ended_stream_with_the_same_id_and_name`, `an_open_stream_never_lends_arguments`, `a_conflicting_streamed_name_is_flagged_and_lends_nothing`, `an_overflowed_stream_never_lends_arguments`; fixtures `observed_tool_round_trip_proposal`, `absent_final_input_uses_ended_stream`, `open_stream_never_lends_arguments`, `conflicting_streamed_name_rejected_at_admission` |
+| Malformed or duplicate-key arguments replaced by `{}` and flagged; still admissible | BM-04, I6 | `malformed_arguments_are_replaced_with_an_empty_object`; fixtures `malformed_arguments_replaced`, `duplicate_key_arguments_replaced` |
+| Duplicate and empty ids preserved and refused by admission; missing arguments refused first | BM-04, I7 | `empty_and_duplicate_ids_are_preserved_flagged_and_refused_by_admission`, `missing_arguments_are_refused_by_admission`; fixture `duplicate_final_ids_preserved_for_admission` |
+| Unmatched streamed events are anomalies, not state | BM-04 | `unmatched_streamed_events_are_dropped_as_anomalies` |
+| Proposals are data; FX executes nothing | invariant 5 | `proposals_are_data_and_never_execute` |
+| Provider records only for declared provider tools; first final result wins | BM-04, I8, invariant 6 | `provider_records_are_accepted_only_for_declared_provider_tools`, `the_first_final_provider_result_wins`; fixtures `provider_record_for_local_tool_fails_closed`, `provider_record_first_final_wins` |
+| Usage merged field by field, absent stays unknown; metadata first value wins | BM-05 | `usage_merges_field_by_field_and_absent_fields_stay_unknown`, `metadata_keeps_the_first_value_and_counts_conflicts`; fixture `usage_fields_merge_without_guessing` |
+| Delivery certainty is reported honestly and never regresses | BM-06, I9, invariant 3 | `an_unsent_start_failure_stays_definitely_unsent`, `a_failure_after_dispatch_is_possibly_sent`, `a_received_event_confirms_the_response`, `delivery_certainty_never_regresses` |
+| C1 cancel before start sends nothing | BM-08 | `cancellation_before_start_sends_nothing`; fixture `cancel_before_start_never_invokes` |
+| C2, C3 cancel during the stream keeps observed delivery and partial output; remote status is what the capability reports | BM-08, invariant 4 | `cancellation_during_the_stream_reports_observed_delivery_and_partial_output`, `confirmed_remote_cancellation_still_may_have_executed`; fixture `cancel_during_stream_is_unconfirmed` |
+| C4 repeated cancel is one cancel; cancel after finish is ignored | BM-08 | `repeated_cancellation_requests_cancel_once_and_cancel_after_finish_is_ignored` |
+| C5 abandonment cancels and closes once | BM-09 | `observer_abandonment_cancels_and_closes_once` |
+| A stalled capability is bounded; a capability timeout keeps its delivery | BM-08, C7 | `a_stalled_capability_is_bounded_by_the_poll_limit`, `a_capability_reported_timeout_is_a_failure_with_its_delivery` |
+| Event size, empty identifiers, batch size, event, proposal and accumulation bounds | A-8, BM-17, invariant 7 | `oversized_events_are_resource_limits`, `empty_event_identifiers_are_protocol_violations`, `a_batch_larger_than_requested_is_a_protocol_violation`, `event_and_proposal_counts_are_bounded`, `accumulation_is_bounded_while_deltas_are_forwarded_in_full`; fixture `oversized_event_is_a_resource_limit` |
+| Diagnostics hold no content; counts are exact | BM-15, invariant 8 | `diagnostics_never_contain_content` (secret-shaped prompt, image, arguments, tool output, affinity key), `diagnostics_count_calls_and_bytes` |
+| Pinned `Limits` defaults including the R2 bounds | BM-17 | `contract_validation::limits_defaults_are_pinned` |
+| Portability: no clock, thread, async, I/O or global state in the core; builds for `wasm32-unknown-unknown` | BM-16, invariant 9 | `check-boundaries.sh`; CI step "Build wasm32-unknown-unknown" |
+| Every executor fixture produces its expected result and cites its oracle | BM-14 (prerequisite) | `executor_fixtures::every_executor_fixture_produces_its_expected_result`, `executor_fixtures_are_deterministic` |
+
+### 9.2 Parity with the oracle
+
+Expected results come from the oracle tests cited in each fixture's `oracle` field and in the test comments; none was changed to match the Rust implementation. One divergence found while writing the fixtures was fixed in Rust rather than in the expectation: an absent final input with no exact ended stream is now refused by `admit_proposals` (`MissingArguments`), as `authoritativeToolAdmission` refuses it with `invalid_tool_input` or `incomplete_streamed_input` (`client.zig:3050-3080`, `consumeSseStream rejects absent outer input without exact ended fallback`).
+
+### 9.3 Intentional differences (fail closed)
+
+| Difference | Oracle | Rust | Reason |
+| --- | --- | --- | --- |
+| Provider record for an undeclared or local tool, an id colliding with a proposal, or a malformed record | rejected at admission (`reject_malformed_provider_result`) | the stream fails with `ProtocolViolation` and the capability is cancelled | the typed contract declares provider tools up front, so the executor can reject immediately instead of carrying a poisoned completion |
+| `finish_reason = tool_calls` with no proposal and no provider record | classified by the caller | `Disposition::InvalidCompletion` | nothing to act on; fails closed |
+| Missing arguments placeholder | `""` | `"{}"` with `integrity: Replaced`, `source: Missing`, and refused by admission | proposals in a completion always carry valid JSON (I6); admission still refuses them |
+| Events after `finish` in the same batch | ignored | dropped, not forwarded, counted as anomalies in diagnostics | same behavior, now observable |
+| Interrupted stream | `GatewayInterrupted` with partial content | `Failed { origin: Executor, kind: Transport, partial }` | the contract's single failure shape |
+
+### 9.4 Deferred gaps
+
+| Gap | Owner and step |
+| --- | --- |
+| Live replay of the fixtures through the Zig oracle's `consumeSseStream` | Would need a Zig test harness; R2 keeps `src/` unchanged. Revisit in R5 before the legacy seam is deleted |
+| Streamed changed-id reconciliation (`findEquivalentEndedStreamedToolInput`, structural matching of a final call to a stream with a different id) | FX executor, when a capability is shown to need it (R3) |
+| Wire encoding of `ExecutionReport` (proposal checks, disposition, diagnostics) | R4, with the adapters that consume it |
+| Interrupting a blocking `poll` | Not possible without a clock or thread in the core; R4 adapters drive `poll` from the host loop (RISKS R-22) |
+| Generic `*_KEY=` secret heuristic for capability-supplied `Detail` | R3 (§8.3) |
+| Throughput micro-benchmark | R6 |

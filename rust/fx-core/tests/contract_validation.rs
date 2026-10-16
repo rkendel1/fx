@@ -65,6 +65,9 @@ fn limits_defaults_are_pinned() {
     assert_eq!(l.max_completion_bytes, 16 * 1024 * 1024);
     assert_eq!(l.max_attempt_budget, Duration::from_secs(86_400));
     assert_eq!(l.max_proposals, 256);
+    assert_eq!(l.max_events_per_poll, 256);
+    assert_eq!(l.max_events_per_attempt, 1 << 20);
+    assert_eq!(l.max_polls_per_attempt, 1 << 20);
 }
 
 // ---------------------------------------------------------------------------

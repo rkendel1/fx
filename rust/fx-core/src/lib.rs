@@ -1,10 +1,13 @@
-//! # fx-core: the FX inference contract
+//! # fx-core: the FX inference contract and executor
 //!
 //! The provider-neutral contract shared by the FX executor, the Easy-LLM capability
 //! adapter and the Node and WebAssembly adapters. This crate holds data types,
-//! deterministic request validation and the versioned JSON encoding. It has no
-//! executor yet, and by design it contains no provider SDK, HTTP client, network,
-//! filesystem, process, environment or async-runtime access.
+//! deterministic request validation, the versioned JSON encoding ([`wire`]), the
+//! capability trait ([`capability`]), event normalization ([`normalize`]), the
+//! one-attempt executor ([`executor`]), content-free diagnostics ([`diagnostics`])
+//! and a deterministic fake capability for tests ([`testing`]). By design it
+//! contains no provider SDK, HTTP client, network, filesystem, process,
+//! environment, clock, thread or async-runtime access.
 //!
 //! Contract invariants established here (see `docs/rebuild/ARCHITECTURE.md`):
 //!
@@ -25,13 +28,25 @@
 //! 10. No host-specific type appears in the contract.
 
 mod base64;
+pub mod capability;
 pub mod contract;
+pub mod diagnostics;
+pub mod executor;
 mod json_check;
+pub mod normalize;
 mod redact;
+pub mod testing;
 pub mod validate;
 pub mod wire;
 
+pub use capability::{AttemptContext, CancelStatus, Capability, PollBatch, Started, StreamState};
 pub use contract::*;
+pub use diagnostics::{Diagnostics, RequestShape, TerminalCause};
+pub use executor::{ExecutionReport, Flow, Host, NoHost, execute, execute_document};
+pub use normalize::{
+    AdmissionError, AdmissionRejection, ArgumentIntegrity, ArgumentSource, Disposition, Normalizer,
+    ProposalCheck, ProposalIdentity, Pushed, Violation, admit_proposals, classify,
+};
 pub use validate::{
     Location, ValidationCode, ValidationError, validate_event_bounds, validate_request,
 };

@@ -4,7 +4,7 @@
 # Fails when the core gains a crate outside deps-allowlist.txt, a provider SDK,
 # HTTP/TLS client or async runtime, an unpinned or path/git dependency, or source
 # that reaches the network, filesystem, processes, environment, threads, wall or
-# monotonic clocks, or code outside the crate.
+# monotonic clocks, global mutable state, or code outside the crate.
 set -euo pipefail
 
 crate_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -66,6 +66,14 @@ patterns=(
   'include_bytes!'
   'env!'
   'option_env!'
+  # Global mutable state would couple independent executions (BM-11).
+  'static mut'
+  'thread_local!'
+  'std::sync'
+  'OnceLock'
+  'LazyLock'
+  'lazy_static'
+  'once_cell'
 )
 for pattern in "${patterns[@]}"; do
   if hits="$(grep -RnE -- "$pattern" src/)"; then

@@ -148,14 +148,14 @@ The Rust types are normative; the summary below is for orientation:
 
 Deliberate deviations from the illustrative list in RUST_PRIMITIVES.md §11, both to preserve oracle behavior: `ErrorKind` keeps `ProviderUnavailable` and `SystemResumed` separate from `Transport`, because turn-level recovery distinguishes them (`model_response_recovery.zig` `FailureCause`); and the outcome has no separate "interrupted" variant, matching RUST_PRIMITIVES §5's three outcomes, with interruption expressed as `Failed { partial: Some(..) }`.
 
-**Stream state machine and invariants I1-I10** (enforced by the executor's normalizer in R2, not trusted from the capability):
+**Stream state machine and invariants I1-I10** (enforced by the executor's normalizer, `rust/fx-core/src/normalize.rs`, not trusted from the capability):
 
 ```text
 Open ──metadata*, text_delta*, reasoning_delta*, tool_input_*, tool_call*, provider_tool_record*, usage*──▶ Open
 Open ──finish──▶ Finished (terminal)
 Open ──capability error──▶ Failed (terminal)
 Open ──capability ends without finish──▶ Failed { partial } (interrupted)
-Any terminal ──any further event──▶ protocol violation; the first terminal outcome is kept
+Finished ──any further event──▶ dropped and counted as an anomaly; the first terminal outcome is kept
 ```
 
 - I1 exactly one terminal outcome per execution; events after it are dropped (`consumeSseStream ignores conflicting and late stream events without mutation`).
@@ -164,8 +164,8 @@ Any terminal ──any further event──▶ protocol violation; the first term
 - I4 an unknown finish reason authorizes nothing: on the wire it fails decoding (`event_finish_unknown_reason` fixture); E2E `empty provider finish reason fails closed before tool execution`.
 - I5 `tool_input_delta` is never authoritative; the final `tool_call` input wins; fallback to streamed input only for an exactly matching, ended stream of the same name (`consumeSseStream accepts authoritative final input before end`, `... rejects fallback from an open stream`, `... rejects a final tool name that conflicts with streamed identity`).
 - I6 arguments are always valid JSON after normalization; malformed input is replaced by `{}` and flagged (`consumeSseStream replaces malformed trailing or duplicate-key serialized final input with safe JSON`).
-- I7 duplicate proposal ids are preserved and then rejected by admission, never merged (`consumeSseStream preserves duplicate final ids for duplicate admission`).
-- I8 provider tool results attach only to provider-executed calls with an unambiguous id (`consumeSseStream rejects provider results for local calls`, `... rejects ambiguous provider result correlation`).
+- I7 duplicate proposal ids are preserved and then rejected by admission, never merged (`consumeSseStream preserves duplicate final ids for duplicate admission`). A proposal with a valid identity but no final arguments and no exact ended stream is also rejected by admission, before identities are checked (`consumeSseStream rejects absent outer input without exact ended fallback`); its `{}` placeholder is never admissible.
+- I8 provider tool records are accepted only for tools the request declared as provider-executed, with an id that does not collide with a proposal; a preliminary record is replaced and the first final record wins (`consumeSseStream rejects provider results for local calls`, `... rejects ambiguous provider result correlation`, `... replaces preliminary results and preserves the first final result`). The Rust executor fails such a stream closed (`ProtocolViolation`) where the oracle defers the rejection to admission (BEHAVIOR_MATRIX §9.3).
 - I9 delivery certainty only moves forward (`delivery certainty stays definitely unsent when request setup fails`, `... becomes possibly sent before response head`; Rust: `delivery_certainty_is_monotonic`).
 - I10 history validation: every assistant tool call has exactly one later matching tool result (oracle `validateToolMessageHistory`; Rust: `validate_request`).
 
@@ -201,20 +201,68 @@ These are the ten invariants the R1 PR establishes for all later work; each maps
 | Image media type sniffing against declared type, per-image, count and total bounds | FX | `validate_request` |
 | Reasoning label syntax; whether the model supports the label | FX syntax; Easy-LLM support | |
 | Capability event field bounds | FX | `validate_event_bounds` (decode) |
-| Event semantics: ordering, terminal rules, proposal identity, malformed-argument replacement | FX executor | R2 normalizer |
+| Event semantics: ordering, terminal rules, proposal identity, malformed-argument replacement | FX executor | `normalize::Normalizer` |
+| Structural admission of proposals (identity, duplicates, missing arguments) | FX (structure only) | `normalize::admit_proposals` |
 | Tool-call admission for execution (permission) | Chip / Attn | never FX |
 
 ### Primitive B: Inference Executor (`rust/fx-core/src/executor.rs`, R2)
 
-**Responsibility:** run exactly one inference attempt against a supplied capability: validate (via `parse_request`/`validate_request`), start the capability once, poll bounded batches, normalize events (I1-I10), forward them, accumulate the bounded completion, enforce cancellation and the attempt budget, and produce exactly one `Outcome` with redacted diagnostics.
+**Responsibility:** run exactly one inference attempt against a supplied capability: validate (`validate_request`, or `parse_request` for documents), start the capability at most once, poll bounded batches, normalize events (I1-I10), forward them to the host, accumulate the bounded completion, honor cancellation, and produce exactly one `Outcome` with content-free diagnostics.
 
-**Not responsible for:** retries, fallback, model or provider choice, credentials, prompt assembly, history budgeting, tool admission or execution, persistence, usage ledgers, user-facing wording.
+**Not responsible for:** retries, fallback, model or provider choice, credentials, prompt assembly, history budgeting, tool admission policy or tool execution, persistence, usage ledgers, user-facing wording, timers.
 
-The capability shape is the non-blocking, host-drivable trait in RUST_PRIMITIVES.md §6 (`start`, bounded `poll`, `cancel`, `close`); it lands in R2 with the fake capability. Diagnostics (formerly primitive 6) are bounded metadata only: request id, timing, terminal cause, event and byte counts, and a content-free request-shape summary (today's `formatGatewayRequestShapeSummary`).
+**Capability contract** (`rust/fx-core/src/capability.rs`). The capability is the only thing that performs inference; FX defines the trait and implementations live outside the core (the fake in `testing.rs` now, Easy-LLM in R3, host bridges in R4).
+
+```rust
+pub trait Capability {
+    type Handle;
+    fn start(&mut self, ctx: &AttemptContext<'_>) -> Result<Started<Self::Handle>, CapabilityError>;
+    fn poll(&mut self, handle: &mut Self::Handle, max_events: usize) -> Result<PollBatch, CapabilityError>;
+    fn cancel(&mut self, handle: &mut Self::Handle) -> CancelStatus; // Requested | Confirmed
+    fn close(&mut self, handle: Self::Handle);
+}
+```
+
+- `AttemptContext` carries the validated request, the `Limits` the executor enforces and the optional `AttemptBudget`. The capability never sees an invalid request.
+- `Started.delivery` and every `PollBatch.delivery` report what the capability has observed; the executor only advances certainty (I9), never lowers it, and any received event proves `ConfirmedResponse`.
+- `PollBatch.state` is `Open` (more may come) or `Ended` (the stream is over; if no `finish` arrived the attempt is interrupted).
+- A capability must not retry, fall back or refresh credentials across the attempt in a way that changes what the attempt means, must not execute application tools, and must not under-report delivery.
+
+**Invocation semantics.**
+
+| Step | Rule | Outcome when it stops here |
+| --- | --- | --- |
+| Validate | always first; an invalid request or undecodable document never reaches the capability | `Failed { Executor, InvalidRequest, DefinitelyUnsent }` |
+| Cancel check | before `start` | `Cancelled { DefinitelyUnsent, NotStarted }`, zero capability calls |
+| `start` | exactly once; never retried | error: `Failed { Capability, kind, delivery }`, no `close` (no handle exists) |
+| Loop | cancel check, poll-count bound, `poll(max_events_per_poll)`, batch-size check, normalize and forward each event | see below |
+| `close` | exactly once after a successful `start`, on every path | n/a |
+
+Inside the loop:
+
+- a poll error yields `Failed { Capability }` with the partial content and the highest certainty observed;
+- a batch larger than `max_events_per_poll` is a `ProtocolViolation`; more than `max_polls_per_attempt` polls or `max_events_per_attempt` events is a `ResourceLimit`; normalizer violations (oversized fields, too many proposals or streamed inputs, provider records for undeclared tools, id collisions, malformed records) are `ProtocolViolation` or `ResourceLimit`. Each of these cancels the capability before closing it;
+- `finish` ends the attempt immediately (I2), and anything after it in the same batch is dropped (I1);
+- `Ended` without `finish` is `Failed { Executor, Transport, partial }` (I3);
+- an empty `Open` batch calls `Host::idle`, where a host may wait; `Flow::Stop` there cancels;
+- a host that returns `Flow::Stop` from `on_event` abandons the attempt: the executor cancels the capability and returns `Cancelled`.
+
+The completed outcome is classified by `classify` into `Complete`, `ToolProposals`, `LengthLimited`, `ProviderFailure` or `InvalidCompletion` (oracle `classifyProviderCompletion`; `tool_calls` with nothing proposed and proposals with `stop`/`other` are invalid). Per-proposal `ProposalCheck { identity, integrity, source }` and the disposition are returned in `ExecutionReport` alongside the outcome; their wire encoding is deferred to R4 with the adapters. `admit_proposals` performs the oracle's structural admission; it grants no permission.
+
+**Cancellation and budget limits.** The core has no clock, thread or async runtime, so:
+
+- cancellation is observed at three points only: before `start`, between polls, and through the host's `Flow::Stop`. A `poll` that blocks delays cancellation until it returns; the capability contract requires `poll` and `cancel` not to block indefinitely;
+- the attempt budget is enforced by the capability, which owns the clock and reports `Timeout` with its true delivery certainty. A host can also enforce its own deadline through `cancel_requested` or `idle`;
+- a capability that stalls forever with empty `Open` batches is bounded by `max_polls_per_attempt`;
+- `cancel` returns what the capability actually knows: `Requested` maps to `remote: Unconfirmed`, `Confirmed` to `remote: Confirmed`. Neither ever implies the operation did not execute unless delivery is still `DefinitelyUnsent` (invariant 4).
+
+**Bounds added in R2** (in `Limits`): `max_events_per_poll = 256`, `max_events_per_attempt = 2^20`, `max_polls_per_attempt = 2^20`.
+
+**Diagnostics** (`rust/fx-core/src/diagnostics.rs`). Bounded metadata only: request id, a content-free `RequestShape` (message counts per role, part counts by type, tool count, tool-choice and format flags, budget), the `TerminalCause`, final delivery, start, poll, cancel and close counts, event, forwarded and anomaly counts, and text, reasoning and tool-input byte counts. No prompt, image byte, tool argument, tool result, provider detail or credential is ever copied into it.
 
 ### Primitive C: Runtime Adapters (R4)
 
-Shared rule: adapters translate types and lifetimes only. They do not add retries, defaults or validation beyond the executor's, they reuse `wire.rs` for JSON, and they run the same fixtures (`rust/fx-core/tests/fixtures/contract/` and the R2 executor fixtures).
+Shared rule: adapters translate types and lifetimes only. They do not add retries, defaults or validation beyond the executor's, they reuse `wire.rs` for JSON, and they run the same fixtures (`rust/fx-core/tests/fixtures/contract/` and `rust/fx-core/tests/fixtures/executor/`).
 
 - **Native Rust API.** The `fx-core` crate itself. Rust consumers link it directly; the Zig shell reaches it through the C-compatible boundary chosen in R4/R5 (opaque handles, fixed-width scalars, pointer/length pairs, Rust-owned buffers with a matching free; RUST_PRIMITIVES §11).
 - **N-API (`libfx.node`, `libfxApiVersion = 3`).** `createInference({capability})`, `execute(request, {signal})` returning ordered events and one outcome; type-tagged handles with slot caps and exactly-once destruction (kept from `napi_core_main.zig`); thread-safe notification instead of 2 ms polling; capability source per OD-3. The N-API binding crate is an adapter dependency decision for R4 and stays out of `fx-core`'s graph.
@@ -319,9 +367,9 @@ Target values are the wire spellings of `fx_core::ErrorKind`. HTTP status, provi
 - C2 Cancel during the capability call: the executor calls the capability's `cancel` and stops forwarding; the outcome is `Cancelled` with the delivery certainty recorded so far and `remote = Unconfirmed` unless the capability confirms. Cancellation never claims the remote operation did not run (invariant 4).
 - C3 Cancel during streaming: events already forwarded remain valid for the observer; no events are forwarded after cancel is observed; partial content is carried in `Cancellation.partial`.
 - C4 Double cancel is a no-op; cancel after a terminal outcome is a no-op.
-- C5 Consumer abandonment is equivalent to C2/C3, and cleanup is bounded even when the capability cannot interrupt the provider.
+- C5 Consumer abandonment is equivalent to C2/C3, and cleanup is bounded even when the capability cannot interrupt the provider. In R2 the executor observes cancellation only before `start`, between polls and through `Flow::Stop`; it cannot interrupt a `poll` in progress (Primitive B, "Cancellation and budget limits").
 - C6 Every path releases all per-execution state (Rust ownership plus explicit capability `close`); the oracle's allocation-failure sweep (`consumeSseStream frees all response state across allocation failures`) is ported as resource-teardown tests on every terminal path.
-- C7 The deadline is absolute; progress never extends it (`bounded gateway progress does not extend the absolute deadline`).
+- C7 The deadline is absolute; progress never extends it (`bounded gateway progress does not extend the absolute deadline`). The core has no clock: the capability enforces `AttemptBudget` and reports `Timeout`, so C7 is a capability conformance requirement, verified for Easy-LLM in R3.
 
 ## 10. Security assumptions
 

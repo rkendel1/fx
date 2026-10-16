@@ -76,6 +76,15 @@ pub struct Limits {
     pub max_attempt_budget: Duration,
     /// Maximum number of proposals or provider records in one outcome (new FX bound).
     pub max_proposals: usize,
+    /// Maximum events a capability may return from one `poll` (new FX bound, R2).
+    /// The executor passes it to the capability and rejects larger batches.
+    pub max_events_per_poll: usize,
+    /// Maximum events in one attempt (new FX bound, R2). Bounds executor work for a
+    /// capability that streams forever.
+    pub max_events_per_attempt: usize,
+    /// Maximum `poll` calls in one attempt, including empty polls (new FX bound, R2).
+    /// Bounds the synchronous driver when a capability never makes progress.
+    pub max_polls_per_attempt: usize,
 }
 
 impl Limits {
@@ -106,6 +115,9 @@ impl Limits {
         max_completion_bytes: 16 * 1024 * 1024,
         max_attempt_budget: Duration::from_secs(24 * 60 * 60),
         max_proposals: 256,
+        max_events_per_poll: 256,
+        max_events_per_attempt: 1 << 20,
+        max_polls_per_attempt: 1 << 20,
     };
 }
 
