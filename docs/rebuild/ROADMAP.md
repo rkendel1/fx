@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-The rebuild uses the R0–R6 sequence from [RUST_PRIMITIVES.md](RUST_PRIMITIVES.md) §12. Rust is the implementation language of the new core (OD-9). The Zig implementation under `src/` remains the behavioral oracle until R5, and it is never a second supported inference core.
+The rebuild uses the R0–R6 sequence from [RUST_PRIMITIVES.md](RUST_PRIMITIVES.md) §12. Rust is the implementation language of the new core (OD-9). The Zig implementation under `src/` remains the behavioral oracle until the consumer migration, and it is never a second supported inference core.
 
 Every PR keeps the existing gates intact: `zig fmt --check src/`, `zig build test`, Full CI on the four native runners, the N-API and WASM SDK lanes, and the ship gate described in `AGENTS.md`. From R1 on, the **Rust core** workflow (`.github/workflows/rust-core.yml`) is an additional gate for any change under `rust/` or to `rust-toolchain.toml`.
 
@@ -9,14 +9,15 @@ flowchart LR
   R0["R0 ✓<br/>Decomposition +<br/>language decision"] --> R1["R1 ✓<br/>Contract crate"]
   R1 --> R2["R2 ✓ (this PR)<br/>Executor +<br/>fake capability"]
   R2 --> R3["R3<br/>Easy-LLM<br/>capability"]
-  R2 --> R4["R4<br/>Node + WASM<br/>adapters"]
-  R3 --> R5["R5<br/>Consumer migration +<br/>legacy removal"]
-  R4 --> R5
-  R5 --> R6["R6<br/>Production<br/>readiness"]
+  R2 --> R4["R4 ✓<br/>Node + WASM<br/>adapters"]
+  R3 --> R4
+  R4 --> R5["R5 ✓ (this PR)<br/>Provider conformance +<br/>capability parity"]
+  R5 --> CM["Consumer migration +<br/>legacy removal<br/>(formerly R5)"]
+  CM --> R6["R6<br/>Production<br/>readiness"]
   OD2(["OD-2 Easy-LLM single-attempt API"]) -.-> R3
-  OD7(["OD-7 legacy Gateway capability"]) -.-> R5
+  OD7(["OD-7 legacy Gateway capability"]) -.-> CM
   OD3(["OD-3, OD-5"]) -.-> R4
-  OD1(["OD-1 shell fate"]) -.-> R5
+  OD1(["OD-1 shell fate"]) -.-> CM
   OD6(["OD-6 naming"]) -.-> R6
 ```
 
@@ -78,7 +79,7 @@ flowchart LR
 
 **Exit:** no compile-time provider choice and no provider implementation inside the FX core.
 
-## R4: Host bridge for real providers (this PR)
+## R4: Host bridge for real providers (done)
 
 **Delivered here** (details and limits in [HOST_BRIDGE.md](HOST_BRIDGE.md))
 - `fx_core::Execution`: the executor as a resumable state machine (`step`, `cancel`); `execute` is a loop over it. `fx_core::encode_report`: the JSON encoding of an `ExecutionReport` (deferred from R2).
@@ -96,7 +97,25 @@ flowchart LR
 
 **Exit:** equivalent outcomes for every applicable fixture on native and WebAssembly (met for the 26 host fixtures); a real Easy-LLM adapter returns a normalized FX outcome (met against a local mock; no live provider in CI).
 
-## R5: Consumer migration and legacy removal
+## R5: Provider conformance and capability parity (this PR)
+
+**Delivered here** (the answer, per provider, is [PROVIDER_CONFORMANCE.md](PROVIDER_CONFORMANCE.md); method and limits in [HOST_BRIDGE.md](HOST_BRIDGE.md) "Provider conformance")
+- `host/node/conformance`: a mock server that speaks the wire format of all five Easy-LLM adapters (OpenAI, OpenRouter, Anthropic, Google, Ollama), and 34 cases that run the real, unmodified adapters through the real Rust executor (WebAssembly). 167 provider runs, deterministic and offline, plus universal invariants checked on every attempt.
+- A versioned capability manifest (`conformance/manifest.json`): sixteen features per provider, each `supported`, `unsupported` or `unverified`. `npm run conformance` fails if a status is not backed by the results (for example `supported` without a passing case), if the suite is not deterministic, or if the generated document is stale.
+- A correction found by the suite: a collected (non-streaming) response with no finish reason, including a body that parses but is not a response, was reported as a completion with finish `other`. It is now an interrupted attempt, the same rule as a stream (`host/node/src/translate.js`).
+- The Easy-LLM dependency is the published `@easy-llm/llm@0.10.2`, pinned exactly (no git ref, no branch); the npm release contains the single-attempt API.
+- CI: the conformance lane in `host-bridge.yml` on Node 22 and 24 (Linux) and 22 (macOS).
+
+**Not delivered, by design**
+- No change to `rkendel1/llm`. Gaps the suite finds there (Google never carries a stream finish reason; Anthropic and Ollama streams do not carry theirs; the OpenAI-style adapters keep reading after the provider's terminal marker; stream lines that fail to parse are skipped) are recorded as `unsupported` with the evidence, and need Easy-LLM changes. FX adds no workaround.
+- No live provider was run. Every status is mock-backed.
+- No retry, fallback or routing; no tool execution; no new provider abstraction beside `ProviderPort`.
+
+**Exit:** every adapter has deterministic conformance results; the manifest matches them; no unverified stream is normalized into a success (met for all five; Google streaming completion stays `unsupported`).
+
+## Consumer migration and legacy removal (formerly R5)
+
+This work keeps its content and dependencies; only its label changed when R5 was assigned to provider conformance. Other documents that say "R5" for consumer migration (RISKS, ARCHITECTURE, VERCEL_TRACE) mean this item.
 
 **Scope**
 - Migrate the Zig consumers (agent loop, `fx ask`, ACP, vision, web search, permission reviewer) to the Rust executor through the boundary chosen in R4. Then remove `stream_provider.Provider` and `ProviderAttemptOwner`.
@@ -104,7 +123,7 @@ flowchart LR
 - Execute the removal ledger ([VERCEL_TRACE.md](VERCEL_TRACE.md) §4). Update the PGSO corpus with each E2E move or removal (R-14).
 - Do this only after parity is demonstrated: E2E `gateway-stream-lifecycle`, `tui-gateway-stream-lifecycle`, `session-recovery`, `vision-route-fake-gateway`, `web-search-fake-gateway` and `tui-interrupt-recovery` pass unchanged against the new path, and `fx ask --json` against `tools/fake_gateway.py` produces byte-identical output.
 
-**Dependencies:** R3, R4, OD-1, OD-7.
+**Dependencies:** R3, R4, R5 (provider conformance), OD-1, OD-7.
 
 **Exit:** no duplicate seam, no unowned behavior, no unexplained deleted test.
 
@@ -117,7 +136,7 @@ flowchart LR
 - Licenses and notices, including the Rust dependency licenses.
 - Release workflow changes from the removal ledger (no Vercel Blob, CDN deploy hook or AI-Gateway changelog drafting).
 
-**Dependencies:** R5, OD-6.
+**Dependencies:** consumer migration, OD-6.
 
 **Exit:** all conformance, performance, security and release gates are green.
 

@@ -34,6 +34,8 @@ export { SupportFlags, HostProtocolError };
  * @typedef {object} HostInfo
  * @property {string} mode
  * @property {boolean} providerInvoked whether the provider layer was called
+ * @property {number} [providerInvocations] how many times Easy-LLM says it called the provider for this attempt
+ *   (set once a terminal event reports it; always 0 or 1 for the built-in adapters)
  * @property {string} [providerId]
  * @property {"none" | "unknown"} [transportRetries] what the provider declared about its own retries
  * @property {boolean} [abortForwarded] whether the provider forwards the abort signal to its transport
@@ -218,6 +220,7 @@ export class FxRuntime {
           const attempt = event.type === "done" || event.type === "failed" ? event.attempt : undefined;
           if (!attempt) continue;
           host.providerInvoked = attempt.providerInvocations > 0;
+          host.providerInvocations = attempt.providerInvocations;
           if (attempt.providerId) host.providerId = attempt.providerId;
           host.transportRetries = attempt.transportRetries;
           host.abortForwarded = attempt.abortForwarded;

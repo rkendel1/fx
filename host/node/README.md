@@ -42,16 +42,14 @@ Text messages only. Requests that use images, tool definitions, tool-call histor
 ## Install and test
 
 ```bash
-npm ci                 # Easy-LLM comes from a pinned git ref; its package builds on install
+npm ci                 # Easy-LLM comes from the npm registry, pinned to an exact release
 npm run build:wasm     # needs the Rust toolchain pinned in ../../rust-toolchain.toml
 npm run typecheck
 npm run lint
 npm test               # offline: no network, no credentials
+npm run conformance    # provider conformance: all five adapters, manifest check
 npm run example:mock   # real OpenAI adapter -> local mock endpoint -> FX outcome
 ```
-
-`npm ci` reads the lockfile's `ssh://` form of the git dependency. Where ssh is unavailable, run
-`git config --global url."https://github.com/".insteadOf ssh://git@github.com/` first (CI does).
 
 To compare WebAssembly against the native Rust run, as CI does:
 
@@ -59,6 +57,10 @@ To compare WebAssembly against the native Rust run, as CI does:
 (cd ../../rust/fx-host && FX_CONFORMANCE_OUT=/tmp/native.json cargo test --locked --test conformance)
 FX_CONFORMANCE_NATIVE=/tmp/native.json npm test
 ```
+
+## Provider conformance
+
+`npm run conformance` runs the same cases against the real Easy-LLM OpenAI, OpenRouter, Anthropic, Google and Ollama adapters, each pointed at a local mock of its endpoint, through the Rust executor. It prints results by provider and case, checks `conformance/manifest.json` against them (a feature may be `supported` only if passing cases show it), and needs no credentials or network. Results: [`docs/rebuild/PROVIDER_CONFORMANCE.md`](../../docs/rebuild/PROVIDER_CONFORMANCE.md). Every status is mock-backed; no live provider has been verified.
 
 Optional live smoke test (never run by CI, spends tokens): `FX_LIVE_SMOKE=1 OPENAI_API_KEY=... FX_LIVE_MODEL=... npm run example:live`.
 

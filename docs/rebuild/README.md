@@ -6,14 +6,15 @@ This directory holds the architecture discovery and the rebuild plan for turning
 
 | Step | State | Where |
 | --- | --- | --- |
-| R0 decomposition and language decision | Done. Rust is the implementation language (OD-9); the Zig code under `src/` is the behavioral oracle until R5 | this directory, [RUST_PRIMITIVES.md](RUST_PRIMITIVES.md), [DECISIONS.md](DECISIONS.md) |
+| R0 decomposition and language decision | Done. Rust is the implementation language (OD-9); the Zig code under `src/` is the behavioral oracle until the consumer migration | this directory, [RUST_PRIMITIVES.md](RUST_PRIMITIVES.md), [DECISIONS.md](DECISIONS.md) |
 | R1 contract crate | Implemented | [`rust/fx-core`](../../rust/fx-core), test map in [BEHAVIOR_MATRIX.md](BEHAVIOR_MATRIX.md) §8, gates in `.github/workflows/rust-core.yml` |
 | R2 | Executor, capability trait, normalizer and fake capability in `rust/fx-core` (this PR) | [ROADMAP.md](ROADMAP.md), [ARCHITECTURE.md](ARCHITECTURE.md) Primitive B |
 | R3 | Single-attempt capability adapter in `rust/fx-single-attempt`; the provider-side operation is in `rkendel1/llm` | [SINGLE_ATTEMPT.md](SINGLE_ATTEMPT.md), [ROADMAP.md](ROADMAP.md) |
-| R4 | Host bridge: resumable executor, WebAssembly session and ABI, Node host over Easy-LLM providers (this PR) | [HOST_BRIDGE.md](HOST_BRIDGE.md), [ROADMAP.md](ROADMAP.md) |
-| R5–R6 | Planned | [ROADMAP.md](ROADMAP.md) |
+| R4 | Host bridge: resumable executor, WebAssembly session and ABI, Node host over Easy-LLM providers | [HOST_BRIDGE.md](HOST_BRIDGE.md), [ROADMAP.md](ROADMAP.md) |
+| R5 | Provider conformance and capability parity: the same cases against all five Easy-LLM adapters, and a capability manifest backed by the results (this PR) | [PROVIDER_CONFORMANCE.md](PROVIDER_CONFORMANCE.md), [HOST_BRIDGE.md](HOST_BRIDGE.md) "Provider conformance" |
+| Consumer migration, R6 | Planned (the consumer migration was labeled R5 in earlier documents) | [ROADMAP.md](ROADMAP.md) |
 
-The decomposition documents changed no product code. R1 adds the Rust crate and its CI workflow, R2 adds the executor to that crate, R3 and R4 add crates and a Node package beside it; none touches any Zig source, product caller, public API, npm package or existing workflow.
+The decomposition documents changed no product code. R1 adds the Rust crate and its CI workflow, R2 adds the executor to that crate, R3 and R4 add crates and a Node package beside it, and R5 adds the provider conformance suite to that package; none touches any Zig source, product caller, public API, npm package or existing workflow.
 
 Audited commit for the decomposition: `255c6cf125034baad48c99bd618783d63dab7df1` ([BASELINE.md](BASELINE.md)).
 
@@ -37,6 +38,7 @@ Audited commit for the decomposition: `255c6cf125034baad48c99bd618783d63dab7df1`
 | — | Rust contract implementation (R1) and executor (R2) | [`rust/fx-core`](../../rust/fx-core) |
 | — | Single-attempt capability adapter (R3) | [`rust/fx-single-attempt`](../../rust/fx-single-attempt), [SINGLE_ATTEMPT.md](SINGLE_ATTEMPT.md) |
 | — | Host bridge (R4): WebAssembly session and Node host | [`rust/fx-host`](../../rust/fx-host), [`host/node`](../../host/node), [HOST_BRIDGE.md](HOST_BRIDGE.md) |
+| — | Provider conformance (R5): per-provider evidence and the capability manifest | [`host/node/conformance`](../../host/node/conformance), [PROVIDER_CONFORMANCE.md](PROVIDER_CONFORMANCE.md) |
 | — | Phase A baseline | [BASELINE.md](BASELINE.md) |
 | — | Observed wire behavior of the built binary | [evidence/observed-wire.md](evidence/observed-wire.md) |
 | — | Subsystem audits with file:line evidence | [audit/01-inference-path.md](audit/01-inference-path.md), [02-auth-config-hosts](audit/02-auth-config-hosts.md), [03-agent-tools-execution](audit/03-agent-tools-execution.md), [04-embedding-build-ci](audit/04-embedding-build-ci.md), [05-product-shell](audit/05-product-shell.md) |

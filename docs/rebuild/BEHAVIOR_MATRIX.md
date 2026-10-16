@@ -296,4 +296,29 @@ Offline and deterministic. Rust: `rust/fx-core/tests/execution_steps.rs`, `rust/
 | ABI: versions, memory growth, large requests, freed handles, repeated create and free | BM-12 (analogue) | `host/node/test/abi.test.mjs` |
 | Native and WebAssembly give identical responses for every shared fixture | BM-14 | CI: native run records `FX_CONFORMANCE_OUT`; `conformance.test.mjs` compares with `FX_CONFORMANCE_NATIVE`; corrupting one response fails the run |
 
-Not covered: ABI fuzzing, performance and memory-ceiling tests, a live provider, an N-API or browser host, any adapter other than OpenAI end to end.
+Not covered: ABI fuzzing, performance and memory-ceiling tests, a live provider, an N-API or browser host. (Adapters other than OpenAI are covered end to end by §12.)
+
+## 12. R5 provider conformance test map
+
+Offline and deterministic. `host/node/conformance/` (mock server, scenarios, harness, cases, manifest, report) and `host/node/test/provider-conformance.test.mjs`; run with `npm run conformance`. Every case runs once per provider (OpenAI, OpenRouter, Anthropic, Google, Ollama) through the real adapter and the real Rust executor. The generated result matrix is [PROVIDER_CONFORMANCE.md](PROVIDER_CONFORMANCE.md).
+
+| Required behavior | Matrix link | Cases |
+| --- | --- | --- |
+| 1 collected completion | BM-01, BM-05 | `generate-success` |
+| 2 streamed completion | BM-01, BM-02 | `stream-success` |
+| 3 empty streaming response | BM-10 | `stream-empty-body`, `stream-empty-terminal`, `generate-empty-body` |
+| 4 provider-reported finish reason; deterministic mapping; unknown never `stop` | BM-05 | `finish-reason-generate`, `finish-reason-stream` |
+| 5 termination without a verified finish | BM-10, I3 | `stream-no-finish`, `generate-no-finish` |
+| 6 HTTP error with status and `Retry-After`; category from the status, never the text | BM-06 | `http-status`, `http-retry-after`, `http-error-single-attempt` |
+| 7 malformed provider response | BM-10 | `malformed-collected-response`, `malformed-stream-lines` |
+| 8 failure before a request is sent (where demonstrable) | invariant 4 | `invalid-request-before-dispatch`, `aborted-before-dispatch`, `refused-*` (five features), `connect-refused` (stays `possibly_sent`) |
+| 9 failure after invocation | invariant 4 | `reset-before-response`, `reset-mid-stream` |
+| 10 cancellation and late events | BM-08 | `cancel-before-response`, `cancel-mid-stream`, `attempt-budget`, `abandon-from-observer`, `late-chunks-after-terminal` |
+| 11 missing and malformed usage | BM-05 | `usage-generate`, `usage-stream` |
+| 12 exactly one provider invocation per attempt | invariant 1, BM-06 | `single-invocation`, plus the at-most-one-request check on every attempt of every case |
+| Tool proposals are data; the executor, not provider metadata, decides | BM-04, invariant 5 | `tool-proposals-are-data`, `provider-claims-do-not-decide-the-outcome` |
+| Delivery never lowered once a request was made; a completion only with a verified finish; nothing after a finish; no credential in the result | I1, I2, I9, BM-15 | the universal invariants (`checkInvariants`), applied to every attempt |
+| The manifest cannot claim more than the cases show | — | `test/provider-conformance.test.mjs` "capability manifest" (negative tests for every refusal rule) |
+
+Gaps recorded as limitations rather than hidden: Google streaming completion, Anthropic and Ollama stream finish reasons, OpenAI-style output after the terminal marker, silently skipped stream lines, Ollama usage, and every request feature the path cannot carry. Not covered: a live provider, wire formats recorded from live services, HTTP-date `Retry-After` (Easy-LLM's own tests), and the same cases on a non-Node host.
+

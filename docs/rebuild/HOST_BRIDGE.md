@@ -101,21 +101,59 @@ A WebAssembly module cannot wait for a network read. `fx_core::execute` loops un
 
 FX invokes the supplied capability once. For physical network attempts, the guarantee is only as strong as the provider:
 
-- The built-in Easy-LLM adapters use `fetch` directly (no SDK) and do not retry; this is checked by tests that count HTTP requests after a 429 and after a reset (OpenAI adapter, real requests to the local mock). The other four adapters were read, not exercised here.
+- The built-in Easy-LLM adapters use `fetch` directly (no SDK) and do not retry; this is checked by tests that count HTTP requests after a 429 and after a reset (all five adapters, real requests to local mocks; the `single-invocation` and `http-error-single-attempt` conformance cases, see PROVIDER_CONFORMANCE.md).
 - A custom provider may retry internally. It reports `transportRetries: "unknown"` unless it declares `attemptTraits`, and the result carries that in `host.transportRetries`.
 - `fetch` can follow redirects and the platform can retry on connection reuse; neither is controlled here.
 
 ## Provider coverage
 
-| Provider | `generate` text | `stream` text | Notes |
-| --- | --- | --- | --- |
-| OpenAI (exercised end to end against a local mock) | yes | yes | stream completes only because the adapter now passes the provider's `finish_reason`; terminal stays `unverified` |
-| OpenRouter | audit only | audit only | same code path as OpenAI; not exercised |
-| Anthropic | audit only | completes as finish reason `other` | stream has no finish reason; `done` follows `message_stop` |
-| Google | audit only | **every stream ends interrupted** | the adapter synthesizes `done` and reports no finish reason; use `generate` |
-| Ollama | audit only | completes as `other` | `done` follows the server's `done: true` |
+Provider support is determined by conformance evidence, not by what an adapter is meant to do. The full matrix, with the cases that back every entry, is [PROVIDER_CONFORMANCE.md](PROVIDER_CONFORMANCE.md) (generated; CI checks it is current). In short, through the real Rust executor against local mocks of each endpoint:
 
-Unsupported for every provider today (refused before dispatch): images, tool definitions, tool-call history, tool choice, generation options, structured output, provider-executed tools. Streamed tool calls are unavailable from every built-in adapter. These are gaps in the provider layer (SINGLE_ATTEMPT.md "Gaps"), not in FX. Provider errors carry an HTTP status and `Retry-After` only when a response was received (rkendel1/llm#14); otherwise the kind is `transport`.
+| Provider | `generate` text | `stream` text | Stream finish reason | Usage (`generate`) |
+| --- | --- | --- | --- | --- |
+| OpenAI | supported | supported | carried | supported |
+| OpenRouter | supported | supported | carried | supported |
+| Anthropic | supported | completes as finish `other` (the reason is not carried) | not carried | supported |
+| Google | supported | **unsupported: every stream ends interrupted** (no terminal evidence is carried) | not carried | supported |
+| Ollama | supported (needs the server's `done_reason`) | completes as `other` | not carried | not carried |
+
+Every status is mock-backed. **No live provider has been run**, and a passing conformance run is not evidence that a live service sends the wire format the mock reproduces. Unsupported for every provider (refused before dispatch, as `definitely_unsent`): images, tool definitions, tool-call history, tool choice, generation options, structured output, provider-executed tools. Provider errors carry an HTTP status and `Retry-After` only when a response was received (rkendel1/llm#14); otherwise the kind is `transport`.
+
+## Provider conformance (R5)
+
+`host/node/conformance` runs the same cases against every Easy-LLM adapter. Each adapter is the real one, unmodified; only the endpoint is a local mock (`mock-providers.mjs`) that speaks that provider's wire format. A request names its scenario as the model, so one scenario means the same situation on all five endpoints (`scenarios.mjs`).
+
+```bash
+cd host/node
+npm run build:wasm
+npm run conformance          # prints results by provider and case; exits 1 on any failure
+npm run conformance:check    # what CI runs: two runs must be identical; manifest and document must match
+npm run conformance -- --provider google --case stream-success   # a subset (skips the manifest check)
+```
+
+- **Cases** (`cases.mjs`, 34): the twelve required behaviors (collected and streamed completion; empty streams; finish-reason mapping; stream and collected response without a verified finish; HTTP status and `Retry-After`; malformed responses; connection failure before and after invocation; cancellation and late events; missing and malformed usage; exactly one invocation) plus FX invariants over provider output and one refusal case per feature the path cannot carry. Behavior 8 "connection failure before a request is sent, where demonstrable": the only demonstrable cases are the ones refused before the provider is called (invalid and unsupported requests, a signal already aborted); a refused connection is `possibly_sent`, because `fetch` cannot show that no bytes left the host.
+- **Invariants on every attempt**, checked after every run so a case cannot forget them: at most one provider request and one Easy-LLM invocation; delivery never `definitely_unsent` once a request was made; a completion only with a verified finish; at most one `finish`, last, and none on a non-completion; the credential absent from the whole FX result.
+- **Result states**: `pass`; `limitation` (the assertions held and the case recorded a documented gap, so the manifest cannot call that feature `supported`); `fail`. A limitation is asserted, not assumed: if an adapter is fixed, the case fails until the expectation and the manifest are updated.
+- **Manifest** (`manifest.json`, schema 1): sixteen features per provider, each `supported`, `unsupported` or `unverified`. It is descriptive evidence, not a second runtime contract. `npm run conformance` refuses a manifest that claims `supported` without a passing case or with a limitation recorded, `unsupported` with no case recording the gap, an `unverified` or `unsupported` entry without a note, a live claim, or an Easy-LLM commit other than the one `package.json` and the lockfile pin.
+- **Determinism**: results contain no timings or timestamps; `--repeat 2` fails unless both runs are identical. Each case has a 20-second deadline, because a lost cancellation shows as a hang.
+- **Mutation checks** (done once by hand, not in CI): dropping the HTTP status or `Retry-After`, lowering delivery, always marking a collected response as terminal, not forwarding the signal and calling the provider twice each made specific cases fail.
+
+### Terminal-state rules this exposed or confirmed
+
+- A successful end needs evidence. A streamed attempt completes only on a finish reason the provider supplied, or on the provider's own terminal marker (then finish `other`). An adapter-synthesized end with no reason is an interrupted attempt that keeps its partial output.
+- **Corrected in this PR:** a collected response with no finish reason used to be reported as a completion with finish `other`, including a body that parsed but was not a response (`{}`). The host marked every collected result as terminal proof. It now does so only when the provider named a finish reason (`translate.js` `resultToEvents`); otherwise the attempt is interrupted, the same rule as a stream. Consequence: an Ollama server that omits `done_reason` on a non-streaming response yields an interrupted attempt.
+- An unknown provider finish reason maps to `other`, never `stop`. `content_filter` / `SAFETY` map to `content_filter`; `refusal` (Anthropic) maps to `other`. A provider claiming `tool_calls` while returning none does not get a valid completion (the executor reports `invalid_completion`).
+- Missing or invalid usage never invalidates a completion. A usage object with some invalid fields keeps the valid ones; fully invalid usage is dropped.
+
+### What the suite found in Easy-LLM (not worked around here)
+
+These need changes in `rkendel1/llm`; FX adds no compensation (`unsupported` in the manifest):
+
+- **Google** stream: no finish reason, no usage, a `done` yielded unconditionally. Streaming completion cannot succeed. The wire format the adapter parses (one JSON object per line) is also unchecked against the live service, which by default sends a JSON array.
+- **Anthropic and Ollama** streams end on the provider's marker but drop `stop_reason` / `done_reason` and usage, so every streamed completion reports finish `other`.
+- **OpenAI and OpenRouter** streams keep reading after the provider's terminal marker, so text sent after `[DONE]` joins the output. Streamed usage is parsed if sent, but the request does not ask for it (no `stream_options`), so it is `unverified`.
+- **Stream lines that fail to parse are skipped silently** by every adapter except Ollama (which fails the attempt). Text carried only by such a line is lost without a signal.
+- **Ollama** does not read token counts from a collected response.
 
 ## Native and WebAssembly
 
@@ -140,9 +178,10 @@ Outcomes do not differ: no fixture is restricted to one target, and all 26 run o
 
 ```bash
 cd host/node
-npm ci                       # installs Easy-LLM from a pinned git ref
+npm ci                       # installs the pinned Easy-LLM release from npm
 npm run build:wasm
-npm test                     # 71 tests, offline
+npm test                     # offline: bridge, fixtures, real-adapter and provider conformance tests
+npm run conformance:check    # provider conformance, manifest and generated document
 npm run example:mock         # real OpenAI adapter -> local mock endpoint -> FX outcome
 ```
 
@@ -154,10 +193,10 @@ FX_LIVE_SMOKE=1 OPENAI_API_KEY=... FX_LIVE_MODEL=... npm run example:live
 
 ## Not production ready
 
-R4 makes the path work and testable; it is not the R6 readiness review. Open items:
+R4 made the path work and testable and R5 made provider support evidence-based; neither is the R6 readiness review. Open items:
 
-- The Easy-LLM dependency is a pinned git ref because the published `0.10.1` predates `generateOnce`. Switch to the registry when a release includes it.
-- Only the OpenAI adapter has run end to end, and only against a mock. No live provider run is part of CI.
+- The Easy-LLM dependency is the published release `@easy-llm/llm@0.10.2`, pinned exactly (it includes `generateOnce` / `streamOnce`, #13 and #14). The earlier plan to use a git ref is gone.
+- All five adapters have run end to end, but only against local mocks of their wire formats. No live provider run is part of CI, and none is recorded.
 - Tool-using requests cannot run until the provider layer carries tool schemas and tool-call history.
 - No fuzzing of the ABI, no performance measurement, no load or memory-ceiling testing of the module.
 - No N-API, browser or non-Node host.
