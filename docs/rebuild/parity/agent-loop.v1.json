@@ -14,7 +14,28 @@
     "limitation": "a genuine limitation of one side that the product has to accept or close; blocks retirement until decided",
     "unsupported": "the behavior is not implemented on the Rust side (or cannot be driven); blocks retirement"
   },
-  "approvals": {},
+  "approvals": {
+    "unknown_tool.terminal": "approved",
+    "unknown_tool.inference_requests": "approved",
+    "shell_not_executed.terminal": "approved",
+    "write_outside_workspace.side_effects": "approved",
+    "write_outside_workspace.tool_executions": "approved",
+    "write_outside_workspace.terminal": "approved",
+    "write_outside_workspace.inference_requests": "approved",
+    "http_429.terminal": "approved",
+    "http_429.inference_requests": "approved",
+    "http_429.answer": "approved",
+    "http_500.terminal": "approved",
+    "http_500.inference_requests": "approved",
+    "http_500.answer": "approved",
+    "cut_stream.terminal": "approved",
+    "cut_stream.inference_requests": "approved",
+    "cut_stream.answer": "approved",
+    "failure_after_tool.terminal": "approved",
+    "failure_after_tool.inference_requests": "approved",
+    "failure_after_tool.answer": "approved",
+    "persistence_failure.answers_without_saving": "approved"
+  },
   "scenarios": [
     {
       "id": "basic_turn",
@@ -111,7 +132,7 @@
     {
       "id": "write_outside_workspace",
       "requirement": "Unauthorized tool",
-      "about": "The model asks to write a file outside the workspace (../ and absolute path variants are both observed in the capture notes).",
+      "about": "The model asks to create a new file outside the workspace (a ../ path). Overwriting, editing, deleting and the other mutations were probed separately and are reviewed by Zig; see docs/rebuild/security/ZIG_EXTERNAL_WRITE.md.",
       "prompt": "write outside",
       "model": [
         {
@@ -125,7 +146,7 @@
       "differences": {
         "side_effects": {
           "class": "intentional_change_requires_approval",
-          "why": "OBSERVED: the Zig binary in a fresh HOME with no flags executes write_file outside the workspace (the file appears next to the workspace, status success). Chip refuses the path before any execution. Rust is stricter; Zig's behavior looks like a permission-policy hole and deserves its own security review."
+          "why": "OBSERVED: the Zig binary in a fresh HOME with no flags executes a write_file that CREATES a new file outside the workspace (status success) with no permission review; overwrite, edit, delete, create_folder, copy and rename of outside paths were routed to the reviewer. Chip refuses the path before any execution. Under security review (docs/rebuild/security/ZIG_EXTERNAL_WRITE.md); Chip's stricter behavior is approved and is kept."
         },
         "tool_executions": {
           "class": "intentional_change_requires_approval",
@@ -375,47 +396,124 @@
     {
       "id": "permission_modes",
       "what": "ask / auto / yolo permission modes",
-      "why": "Chip has one fixed policy (declared capabilities only); no modes."
+      "why": "Chip has one fixed policy (declared capabilities only); no modes.",
+      "category": "compatibility"
     },
     {
       "id": "provider_native_tool_loop",
       "what": "provider-native tool definitions and multiple/parallel tool calls in one reply",
-      "why": "Chip uses single text decisions (`chip.work-decision.v1`); FX refuses tools by contract."
+      "why": "Chip uses single text decisions (`chip.work-decision.v1`); FX refuses tools by contract.",
+      "category": "core_runtime"
     },
     {
       "id": "silent_tool_continuation",
       "what": "continuing after tools that produce no model-visible output",
-      "why": "not ported"
+      "why": "not ported",
+      "category": "core_runtime"
     },
     {
       "id": "step_limit_pause",
       "what": "pausing at the step limit and continuing with `--continue-recovery`",
-      "why": "Chip ends the work at the limit; there is no pause/continue."
+      "why": "Chip ends the work at the limit; there is no pause/continue.",
+      "category": "core_runtime"
     },
     {
       "id": "images_and_vision",
       "what": "image attachments and the vision tool",
-      "why": "FX refuses non-text parts in the native providers."
+      "why": "FX refuses non-text parts in the native providers.",
+      "category": "product_surfaces"
     },
     {
       "id": "subagents_mcp_skills_memory",
       "what": "subagents, MCP tools, skills, memory, web tools",
-      "why": "no Rust equivalent exists"
+      "why": "no Rust equivalent exists",
+      "category": "product_surfaces"
     },
     {
       "id": "interactive_permission_prompts",
       "what": "interactive approval of a denied action",
-      "why": "no Rust equivalent exists"
+      "why": "no Rust equivalent exists",
+      "category": "safety_correctness"
     },
     {
       "id": "cancel_after_tool",
       "what": "cancellation between a tool result and the next request",
-      "why": "not driven by this corpus yet"
+      "why": "not driven by this corpus yet",
+      "category": "safety_correctness"
     },
     {
       "id": "persistence_failure_after_work_ran",
       "what": "a publish failure after the work has already executed (Persistence::NotCommitted / Uncertain)",
-      "why": "covered by chip-turns tests but cannot be injected through the shipped binary or turn_tool; not part of this run"
+      "why": "covered by chip-turns tests but cannot be injected through the shipped binary or turn_tool; not part of this run",
+      "category": "safety_correctness"
+    },
+    {
+      "id": "duplicate_side_effects_guard",
+      "what": "an idempotence guard so a capability whose result was never committed is not executed again when a crashed turn is re-run",
+      "why": "the shipped chip binary does not persist turns, and re-running a prompt after a crash re-executes the capability; needs a design decision (persist intent before execution, or refuse capabilities with side effects in persisted turns)",
+      "category": "safety_correctness"
     }
-  ]
+  ],
+  "approval_record": {
+    "decided_by": "repository owner",
+    "decided_on": "2026-10-16",
+    "scope": "the intended behavior of each listed difference only; not a statement that the implementation is free of bugs",
+    "decisions": [
+      {
+        "decision": "Zig continues after rejecting an unauthorized tool; Chip fails closed",
+        "covers": [
+          "unknown_tool.terminal",
+          "unknown_tool.inference_requests",
+          "shell_not_executed.terminal"
+        ],
+        "rationale": "Rejection must terminate or safely block the unauthorized action."
+      },
+      {
+        "decision": "Zig retries after provider failure; Chip surfaces the failure",
+        "covers": [
+          "http_429.terminal",
+          "http_429.inference_requests",
+          "http_429.answer",
+          "http_500.terminal",
+          "http_500.inference_requests",
+          "http_500.answer",
+          "cut_stream.terminal",
+          "cut_stream.inference_requests",
+          "cut_stream.answer",
+          "failure_after_tool.terminal",
+          "failure_after_tool.inference_requests",
+          "failure_after_tool.answer"
+        ],
+        "rationale": "FX owns one attempt per invocation. No implicit retries or duplicate execution."
+      },
+      {
+        "decision": "Zig allows ../ writes outside the workspace; Chip refuses",
+        "covers": [
+          "write_outside_workspace.side_effects",
+          "write_outside_workspace.tool_executions",
+          "write_outside_workspace.terminal",
+          "write_outside_workspace.inference_requests"
+        ],
+        "rationale": "Workspace confinement is a security boundary, not a compatibility defect. Chip's stricter behavior is kept and is not to be weakened for parity. Zig's behavior goes to a separate security review."
+      },
+      {
+        "decision": "Zig warns on persistence failure and still answers; Chip refuses to run the turn",
+        "covers": [
+          "persistence_failure.answers_without_saving"
+        ],
+        "rationale": "Do not claim a turn succeeded when the required persistence operation failed."
+      }
+    ],
+    "deliberately_not_approved": [
+      "recovery_after_kill.resumes_the_interrupted_model_response",
+      "recovery_after_kill.side_effects_replayed_on_rerun"
+    ],
+    "not_approved_note": "Crash recovery, replay of side effects, and post-execution publication failure are safety and correctness questions, not cosmetic differences. The shipped chip binary does not persist turns; re-running a prompt can execute a capability again. They stay open."
+  },
+  "categories": {
+    "safety_correctness": "duplicate side effects, authorization, cancellation, publication failures: each needs an explicit design decision before Zig's loop can retire",
+    "core_runtime": "pause/resume, parallel tool calls, silent-tool continuation: needs a clear supported or unsupported contract, not necessarily an implementation",
+    "product_surfaces": "images, subagents, MCP, skills, memory, web: a supported/unsupported contract for the first Rust release",
+    "compatibility": "permission modes and similar details that may not be needed for the first Rust release"
+  }
 }

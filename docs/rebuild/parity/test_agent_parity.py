@@ -42,7 +42,7 @@ class Gate(unittest.TestCase):
         return {"scenarios": {"s": {"verdict": {"status": status, "differences": diffs}}}}
 
     def corpus(self, approvals=None, unsupported=()):
-        return {"approvals": approvals or {}, "unsupported_behaviors": [{"id": u} for u in unsupported]}
+        return {"approvals": approvals or {}, "unsupported_behaviors": [{"id": u, "category": "compatibility"} for u in unsupported], "categories": {"compatibility": ""}}
 
     def test_clean_run_with_nothing_open_is_ready(self):
         g = ap.gate(self.corpus(), self.results("match", []))
@@ -83,6 +83,20 @@ class Corpus(unittest.TestCase):
         covered = {sc["requirement"] for sc in corpus["scenarios"]}
         for required in ("Basic turn", "Tool execution", "Unauthorized tool", "Provider failure", "Cancellation", "Recovery", "Persistence failure"):
             self.assertIn(required, covered)
+
+    def test_every_approval_names_a_declared_difference_and_crash_recovery_is_not_approved(self):
+        corpus = json.loads(ap.CORPUS.read_text())
+        declared = {f"{sc['id']}.{f}" for sc in corpus["scenarios"] for f in sc.get("differences", {})}
+        self.assertTrue(set(corpus["approvals"]) <= declared)
+        self.assertEqual(set(corpus["approvals"].values()), {"approved"})
+        for key in corpus["approval_record"]["deliberately_not_approved"]:
+            self.assertIn(key, declared)
+            self.assertNotIn(key, corpus["approvals"])
+
+    def test_every_unsupported_behavior_has_a_release_impact_category(self):
+        corpus = json.loads(ap.CORPUS.read_text())
+        for u in corpus["unsupported_behaviors"]:
+            self.assertIn(u["category"], corpus["categories"], u["id"])
 
     def test_scenario_ids_are_unique(self):
         ids = [s["id"] for s in json.loads(ap.CORPUS.read_text())["scenarios"]]
