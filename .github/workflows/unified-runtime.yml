@@ -35,7 +35,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
-  CHIP_RS_REF: claude/magical-volta-0f78co
+  CHIP_RS_REF: cb55f473a1dc11980cfc14f3a22605efa5cf1449
 
 jobs:
   chip-over-fx:
