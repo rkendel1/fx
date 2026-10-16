@@ -45,7 +45,12 @@ pub struct Server {
 
 impl Server {
     pub fn start(script: Vec<Reply>) -> Self {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        Self::start_on("127.0.0.1", script)
+    }
+
+    /// Like [`Server::start`], bound to `host` instead of loopback.
+    pub fn start_on(host: &str, script: Vec<Reply>) -> Self {
+        let listener = TcpListener::bind((host, 0)).expect("bind");
         let port = listener.local_addr().unwrap().port();
         listener.set_nonblocking(true).unwrap();
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -73,7 +78,7 @@ impl Server {
             }
         });
         Self {
-            base_url: format!("http://127.0.0.1:{port}/v1"),
+            base_url: format!("http://{host}:{port}/v1"),
             requests,
             connections,
             stop,
@@ -287,4 +292,28 @@ pub fn a_reply(parts: &[&str], stop: &str) -> Vec<Vec<u8>> {
     chunks.push(a_delta(stop, 3));
     chunks.push(a_stop());
     chunks
+}
+
+/// An IPv4 address of this machine in an RFC 1918 range, if it has one. Opt-in LAN tests need a
+/// real private interface to bind; CI runners have one. Set `FX_REQUIRE_LAN_TESTS=1` to turn "none
+/// found" into a failure instead of a skip.
+pub fn private_local_ip() -> Option<String> {
+    // Lets a machine without a private interface exercise the request path (not the address
+    // classification, which `config.rs` unit tests cover) by naming any bindable address.
+    if let Ok(ip) = std::env::var("FX_TEST_LAN_IP") {
+        return Some(ip);
+    }
+    let probe = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    probe.connect("10.255.255.255:1").ok()?;
+    let ip = probe.local_addr().ok()?.ip();
+    let private = matches!(ip, std::net::IpAddr::V4(v4) if v4.is_private());
+    if private {
+        return Some(ip.to_string());
+    }
+    assert!(
+        std::env::var_os("FX_REQUIRE_LAN_TESTS").is_none(),
+        "no private-LAN interface on this machine ({ip}), but FX_REQUIRE_LAN_TESTS is set"
+    );
+    eprintln!("skipping: no private-LAN interface on this machine ({ip})");
+    None
 }

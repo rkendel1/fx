@@ -68,6 +68,9 @@ jobs:
 
       - name: Test (native conformance against a mock server)
         run: cargo test --locked
+        env:
+          # The opt-in LAN tests bind a private interface; on CI a missing one is a failure, not a skip.
+          FX_REQUIRE_LAN_TESTS: "1"
 
       - name: Build native
         run: cargo build --locked --release

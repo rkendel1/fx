@@ -30,6 +30,9 @@ pub struct Common {
     pub(crate) extra_headers: Vec<(String, String)>,
     pub(crate) connect_timeout: Duration,
     pub(crate) default_deadline: Duration,
+    /// A plain-`http` private-LAN endpoint accepted by the keyless opt-in. No header may be
+    /// added to such a configuration, so nothing credential-like can ride along in the clear.
+    insecure_lan: bool,
 }
 
 /// Headers the host may not set: the provider adapter owns them.
@@ -44,14 +47,49 @@ const RESERVED: [&str; 8] = [
     "transfer-encoding",
 ];
 
+/// The host part of `host[:port][/path]`, bracketed IPv6 included.
+fn host_of(rest: &str) -> &str {
+    if let Some(inner) = rest.strip_prefix('[') {
+        return inner.split(']').next().unwrap_or_default();
+    }
+    rest.split(['/', ':']).next().unwrap_or_default()
+}
+
+fn is_loopback(host: &str) -> bool {
+    host == "localhost"
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
+}
+
+/// A private-network IP literal: RFC 1918 IPv4 or an IPv6 unique-local address. Hostnames never
+/// qualify (a name can resolve to a public address, or be rebound), nor do public, link-local or
+/// unspecified addresses.
+fn is_private_lan_ip(host: &str) -> bool {
+    match host.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(ip)) => ip.is_private(),
+        Ok(std::net::IpAddr::V6(ip)) => (ip.segments()[0] & 0xfe00) == 0xfc00,
+        Err(_) => false,
+    }
+}
+
 impl Common {
-    pub(crate) fn new(base_url: &str, key: Option<Secret>) -> Result<Self, ConfigError> {
+    pub(crate) fn new(
+        base_url: &str,
+        key: Option<Secret>,
+        private_lan_http: bool,
+    ) -> Result<Self, ConfigError> {
         let trimmed = base_url.trim().trim_end_matches('/');
+        let mut insecure_lan = false;
         let rest = if let Some(rest) = trimmed.strip_prefix("https://") {
             rest
         } else if let Some(rest) = trimmed.strip_prefix("http://") {
-            let host = rest.split(['/', ':']).next().unwrap_or_default();
-            if !matches!(host, "127.0.0.1" | "localhost" | "[::1]") {
+            let host = host_of(rest);
+            if is_loopback(host) {
+                // Local inference on this machine.
+            } else if private_lan_http && key.is_none() && is_private_lan_ip(host) {
+                insecure_lan = true;
+            } else {
                 return Err(ConfigError(
                     "plain http is only allowed for a loopback host".into(),
                 ));
@@ -79,6 +117,7 @@ impl Common {
             extra_headers: Vec::new(),
             connect_timeout: CONNECT_TIMEOUT,
             default_deadline: DEFAULT_DEADLINE,
+            insecure_lan,
         })
     }
 
@@ -89,6 +128,11 @@ impl Common {
                 .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
         if !valid_name {
             return Err(ConfigError(format!("{name:?} is not a valid header name")));
+        }
+        if self.insecure_lan {
+            return Err(ConfigError(
+                "a plain-http LAN endpoint takes no extra headers".into(),
+            ));
         }
         if RESERVED.contains(&name.to_ascii_lowercase().as_str()) {
             return Err(ConfigError(format!(
@@ -152,7 +196,7 @@ impl OpenAiConfig {
     /// only for a loopback host so a credential is never sent in the clear across a network.
     pub fn new(base_url: &str, api_key: Secret) -> Result<Self, ConfigError> {
         Ok(Self {
-            common: Common::new(base_url, Some(api_key))?,
+            common: Common::new(base_url, Some(api_key), false)?,
             template_thinking: None,
         })
     }
@@ -161,7 +205,22 @@ impl OpenAiConfig {
     /// (`http://localhost:1234/v1`). No `Authorization` header is sent.
     pub fn without_key(base_url: &str) -> Result<Self, ConfigError> {
         Ok(Self {
-            common: Common::new(base_url, None)?,
+            common: Common::new(base_url, None, false)?,
+            template_thinking: None,
+        })
+    }
+
+    /// Like [`OpenAiConfig::without_key`], but also accepts a plain-`http` endpoint at a
+    /// private-network IP literal (`192.168.x.x`, `10.x.x.x`, `172.16-31.x.x`, or an IPv6
+    /// unique-local address), for a keyless inference server elsewhere on the same LAN.
+    ///
+    /// This is deliberately narrow: it exists only on this keyless constructor, so no credential
+    /// can be configured with it; such a configuration accepts no extra headers; hostnames and
+    /// public addresses are still refused; and redirects are never followed. The host must opt in
+    /// explicitly; this crate never reads the environment.
+    pub fn without_key_on_private_lan(base_url: &str) -> Result<Self, ConfigError> {
+        Ok(Self {
+            common: Common::new(base_url, None, true)?,
             template_thinking: None,
         })
     }
@@ -198,7 +257,7 @@ impl AnthropicConfig {
     /// `base_url` is the API root, for example `https://api.anthropic.com/v1`.
     pub fn new(base_url: &str, api_key: Secret) -> Result<Self, ConfigError> {
         Ok(Self {
-            common: Common::new(base_url, Some(api_key))?,
+            common: Common::new(base_url, Some(api_key), false)?,
             version: Self::VERSION.to_owned(),
             default_max_tokens: Self::DEFAULT_MAX_TOKENS,
         })
@@ -225,4 +284,99 @@ impl AnthropicConfig {
     }
 
     shared_builders!();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lan(url: &str) -> Result<OpenAiConfig, ConfigError> {
+        OpenAiConfig::without_key_on_private_lan(url)
+    }
+
+    #[test]
+    fn plain_http_to_a_non_loopback_host_is_refused_by_default() {
+        for url in [
+            "http://192.168.1.20:1234/v1",
+            "http://10.0.0.5/v1",
+            "http://lmstudio.local:1234/v1",
+            "http://8.8.8.8/v1",
+        ] {
+            assert!(OpenAiConfig::without_key(url).is_err(), "{url}");
+            assert!(
+                OpenAiConfig::new(url, Secret::new("k")).is_err(),
+                "{url} with a key"
+            );
+        }
+    }
+
+    #[test]
+    fn loopback_http_works_without_the_opt_in_in_every_spelling() {
+        for url in [
+            "http://127.0.0.1:1234/v1",
+            "http://localhost:1234/v1",
+            "http://[::1]:1234/v1",
+            "http://127.0.0.2/v1",
+        ] {
+            assert!(OpenAiConfig::without_key(url).is_ok(), "{url}");
+        }
+    }
+
+    #[test]
+    fn the_opt_in_accepts_private_ip_literals_only() {
+        for url in [
+            "http://10.1.2.3:1234/v1",
+            "http://172.16.0.9/v1",
+            "http://172.31.255.1:1234/v1",
+            "http://192.168.1.20:1234/v1",
+            "http://[fd12:3456::1]:1234/v1",
+        ] {
+            assert!(lan(url).is_ok(), "{url}");
+        }
+        for url in [
+            "http://8.8.8.8:1234/v1",
+            "http://172.32.0.1/v1",
+            "http://172.15.0.1/v1",
+            "http://169.254.1.1/v1",
+            "http://0.0.0.0:1234/v1",
+            "http://[fe80::1]/v1",
+            "http://[2001:db8::1]/v1",
+            "http://lmstudio.local:1234/v1",
+            "http://example.com/v1",
+            "http://192.168.1.20.example.com/v1",
+        ] {
+            assert!(lan(url).is_err(), "{url}");
+        }
+    }
+
+    #[test]
+    fn a_credential_never_goes_with_plain_http_off_loopback_even_through_the_internal_path() {
+        // The only constructor that takes the exception takes no key, and `new` with a key refuses
+        // every non-loopback http endpoint, opt-in or not.
+        assert!(Common::new("http://192.168.1.20/v1", Some(Secret::new("k")), true).is_err());
+        assert!(Common::new("http://192.168.1.20/v1", None, true).is_ok());
+    }
+
+    #[test]
+    fn a_lan_configuration_accepts_no_extra_headers() {
+        let config = lan("http://192.168.1.20:1234/v1").unwrap();
+        assert!(config.clone().with_header("X-Api-Key", "secret").is_err());
+        assert!(
+            config
+                .with_header("HTTP-Referer", "https://example.test")
+                .is_err()
+        );
+        // Ordinary configurations are unaffected.
+        let ok = OpenAiConfig::without_key("https://openrouter.ai/api/v1").unwrap();
+        assert!(
+            ok.with_header("HTTP-Referer", "https://example.test")
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn https_and_loopback_configurations_do_not_become_lan_configurations() {
+        let config = lan("http://127.0.0.1:1234/v1").unwrap();
+        assert!(config.with_header("X-Title", "t").is_ok());
+    }
 }
