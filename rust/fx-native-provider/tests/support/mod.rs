@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! A deterministic mock HTTP server on loopback. No live credentials, no external network.
 //!
 //! Each accepted connection takes the next scripted [`Reply`]; the server records every
@@ -228,4 +229,62 @@ pub fn http(status: u16, headers: Vec<(&'static str, String)>, body: &str) -> Re
         headers,
         chunks: vec![body.as_bytes().to_vec()],
     }
+}
+
+// ---- Anthropic Messages API stream events ----------------------------------------------------
+
+pub fn aevent(name: &str, json: &str) -> Vec<u8> {
+    format!("event: {name}\ndata: {json}\n\n").into_bytes()
+}
+
+pub fn a_start(input: u64) -> Vec<u8> {
+    aevent(
+        "message_start",
+        &format!(
+            r#"{{"type":"message_start","message":{{"id":"msg_1","model":"claude-mock","usage":{{"input_tokens":{input},"cache_read_input_tokens":2}}}}}}"#
+        ),
+    )
+}
+
+pub fn a_block() -> Vec<u8> {
+    aevent(
+        "content_block_start",
+        r#"{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+    )
+}
+
+pub fn a_text(text: &str) -> Vec<u8> {
+    aevent(
+        "content_block_delta",
+        &format!(
+            r#"{{"type":"content_block_delta","index":0,"delta":{{"type":"text_delta","text":{}}}}}"#,
+            serde_json::to_string(text).unwrap()
+        ),
+    )
+}
+
+pub fn a_delta(stop: &str, output: u64) -> Vec<u8> {
+    aevent(
+        "message_delta",
+        &format!(
+            r#"{{"type":"message_delta","delta":{{"stop_reason":"{stop}"}},"usage":{{"output_tokens":{output}}}}}"#
+        ),
+    )
+}
+
+pub fn a_stop() -> Vec<u8> {
+    aevent("message_stop", r#"{"type":"message_stop"}"#)
+}
+
+/// A complete reply: start, one text block, stop reason and usage, stop.
+pub fn a_reply(parts: &[&str], stop: &str) -> Vec<Vec<u8>> {
+    let mut chunks = vec![a_start(12), a_block(), aevent("ping", r#"{"type":"ping"}"#)];
+    chunks.extend(parts.iter().map(|p| a_text(p)));
+    chunks.push(aevent(
+        "content_block_stop",
+        r#"{"type":"content_block_stop","index":0}"#,
+    ));
+    chunks.push(a_delta(stop, 3));
+    chunks.push(a_stop());
+    chunks
 }

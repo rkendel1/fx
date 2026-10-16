@@ -280,8 +280,8 @@ fn unsupported_features_are_refused_before_anything_is_sent() {
     r.tool_choice = ToolChoice::None;
     cases.push(("tool choice", r));
     let mut r = request();
-    r.options.max_output_tokens = Some(10);
-    cases.push(("generation options", r));
+    r.options.reasoning = ReasoningEffort::Named("high".into());
+    cases.push(("reasoning effort", r));
     let mut r = request();
     r.options.speed = Speed::Fast;
     cases.push(("speed", r));
@@ -294,6 +294,56 @@ fn unsupported_features_are_refused_before_anything_is_sent() {
         assert_eq!(f.delivery, DeliveryCertainty::DefinitelyUnsent, "{name}");
     }
     assert_eq!(server.connections(), 0, "nothing was dispatched");
+}
+
+#[test]
+fn an_output_token_cap_is_carried_to_the_provider() {
+    let server = Server::start(vec![sse(vec![delta("ok"), finish("stop"), done()])]);
+    let mut r = request();
+    r.options.max_output_tokens = Some(10);
+    let report = run(&server, &r, &mut TestHost::default());
+    completion(&report);
+    let body: serde_json::Value = serde_json::from_str(&server.recorded()[0].body).unwrap();
+    assert_eq!(body["max_tokens"], 10);
+}
+
+#[test]
+fn a_keyless_endpoint_sends_no_authorization_and_extra_headers_are_sent() {
+    let server = Server::start(vec![sse(vec![delta("ok"), finish("stop"), done()])]);
+    let config = OpenAiConfig::without_key(&server.base_url)
+        .unwrap()
+        .with_header("HTTP-Referer", "https://example.test")
+        .unwrap();
+    let mut capability = SingleAttemptCapability::new(OpenAiCompatible::new(config));
+    let report = execute(
+        &mut capability,
+        &request(),
+        &Limits::DEFAULT,
+        &mut TestHost::default(),
+    );
+    completion(&report);
+    let head = server.recorded()[0].head.to_ascii_lowercase();
+    assert!(!head.contains("authorization"), "{head}");
+    assert!(
+        head.contains("http-referer: https://example.test"),
+        "{head}"
+    );
+}
+
+#[test]
+fn headers_the_adapter_owns_cannot_be_set_by_the_host() {
+    let config = || OpenAiConfig::new("https://api.example.test/v1", Secret::new(KEY)).unwrap();
+    for name in [
+        "Authorization",
+        "x-api-key",
+        "Content-Type",
+        "Host",
+        "anthropic-version",
+    ] {
+        assert!(config().with_header(name, "x").is_err(), "{name}");
+    }
+    assert!(config().with_header("X-Title", "line\nbreak").is_err());
+    assert!(config().with_header("bad name", "x").is_err());
 }
 
 #[test]

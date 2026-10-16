@@ -12,9 +12,20 @@ Both providers are `ProviderPort` implementations. Validation, support gating, d
 
 ## Scope of this change
 
-One provider: an OpenAI-compatible streaming chat-completions endpoint (`POST {base_url}/chat/completions`). It carries text conversations. Nothing else is claimed.
+Two providers, chosen for the services Chip is actually run against (Anthropic, LM Studio, OpenRouter):
 
-A second provider was not added. Anthropic and Google use different request bodies and stream formats, so each needs its own encoder and decoder. The transport (one worker thread, one request, a polled channel) would be shared, but it is not yet factored out of `provider.rs`, and splitting it for a second user that does not exist yet would add API for no consumer. The follow-up is to extract the worker when the second provider lands.
+* `OpenAiCompatible`: an OpenAI-style streaming chat-completions endpoint (`POST {base_url}/chat/completions`). This is the wire format of OpenAI, **OpenRouter** and **LM Studio** (and Ollama's `/v1` endpoint), so one provider with different configuration serves all of them.
+* `Anthropic`: the Messages API (`POST {base_url}/messages`).
+
+Both carry text conversations and an output token cap. Nothing else is claimed. They share one worker, one polling model, one set of delivery rules and one `Wire` seam (`wire.rs`): a provider is only its request, its headers and its stream decoder. Google and native Ollama are not implemented.
+
+### What the provider does not do: choose
+
+Easy-LLM's CLI keeps credentials in an encrypted vault (`~/.llm/credentials.enc`, unlocked with a master password) and its router picks the provider and model. Neither is part of this crate, deliberately:
+
+* **No router.** FX never selects or falls back (routing is out of scope for the executor). The host passes an explicit provider kind, endpoint and model. A user who relies on Easy-LLM's router keeps the Node-backed path; a native host needs its own explicit selection (Chip already has one: `--provider`, `--model`, `--endpoint`).
+* **No vault.** Credentials are passed in by the host as a `Secret`; this crate reads no environment and no file, and does not read the Easy-LLM vault format. How a native `chip` obtains a key (environment variable, prompt, its own store) is a host decision made in the Chip change, not here.
+* **Local servers work.** LM Studio (for example `http://localhost:1235/v1`, no key) is supported with `OpenAiConfig::without_key`, which sends no `Authorization` header. Plain `http` is accepted for loopback hosts only.
 
 ## Audit
 
@@ -40,9 +51,10 @@ Easy-LLM (`@easy-llm/llm` 0.10.2) has five built-in adapters: OpenAI, OpenRouter
 | Provider | Wire format | Direct in Rust | Status here |
 | --- | --- | --- | --- |
 | OpenAI and compatible gateways | SSE, chat completions | yes, with `ureq` and `serde_json` | implemented |
-| OpenRouter | same as OpenAI | yes, same decoder with another base URL | works through the OpenAI-compatible config; not separately tested |
+| OpenRouter | same as OpenAI (optional attribution headers) | yes, same decoder | implemented through the OpenAI-compatible provider (`with_header` for `HTTP-Referer` and `X-Title`); mock-tested as OpenAI-compatible, not against OpenRouter |
+| LM Studio | same as OpenAI, usually no key | yes | implemented (`without_key`); mock-tested, not against LM Studio |
 | Ollama | NDJSON `/api/generate` (its OpenAI-compatible `/v1` endpoint also works here) | yes | the `/v1` endpoint only; native NDJSON not implemented |
-| Anthropic | SSE messages API with typed events | yes | not implemented |
+| Anthropic | SSE messages API with typed events | yes | implemented |
 | Google | JSON stream, no terminal marker | yes, but the stream cannot be verified complete | not implemented |
 
 Libraries: `ureq` 3 (blocking HTTP) with `rustls` and bundled `webpki-roots`, and `serde_json` (already pinned in `fx-core`). No async runtime, no provider SDK, no OpenSSL. All were chosen because the rest of the FX graph is synchronous and blocking, and `ProviderPort` is a polled interface.
@@ -53,7 +65,9 @@ Libraries: `ureq` 3 (blocking HTTP) with `rustls` and bundled `webpki-roots`, an
 
 `invoke` validates the request, starts one worker thread, and returns. The worker makes exactly one `POST`, follows no redirects, ignores proxy environment variables, and streams the response into a channel. `poll` waits up to 25 ms on that channel and returns what arrived. There is no retry, no fallback, no routing and no second request; `check-boundaries.sh` enforces a single `.post(` site in the source.
 
-The request body contains the model reference, role-tagged text messages, `stream: true` and `stream_options.include_usage: true`. The credential appears only in the `Authorization` header.
+OpenAI-compatible: the body has the model reference, role-tagged text messages, `stream: true`, `stream_options.include_usage: true` and, when the request carries one, `max_tokens`. The credential is only in the `Authorization` header.
+
+Anthropic: the body has the model, user and assistant messages, system text as the top-level `system` field, `stream: true` and `max_tokens`. The API requires `max_tokens`, so when the request does not carry `max_output_tokens` the host's `AnthropicConfig::with_default_max_tokens` value is used (default 4096); it is a visible setting, not a hidden constant. The credential is only in `x-api-key`; `anthropic-version` is `2023-06-01` unless the host sets another.
 
 ### Delivery certainty
 
@@ -78,6 +92,8 @@ A failure seen after `invoke` returned is never reported as `NotInvoked`, becaus
 * An `error` object in the stream is a provider failure; its message is redacted.
 * Only choice index 0 is read.
 
+Anthropic stream: `message_start` supplies the model and input tokens, `content_block_delta` text deltas are the output, `message_delta` supplies the stop reason and output tokens, and `message_stop` is the terminal marker. `message_stop` without a stop reason is a protocol violation. `refusal` is reported as a content-filter finish, and `stop_reason: tool_use`, a `tool_use` block or an `input_json_delta` are protocol violations because no tools were offered. Thinking deltas carry no output, unknown event types are ignored, and an `error` event is a provider failure.
+
 ### Refusal, usage, errors
 
 * `delta.refusal` text is delivered as output text and the finish reason is reported as `content_filter`, so FX classifies the attempt as a refusal while the refusal text survives.
@@ -98,36 +114,42 @@ The host passes `OpenAiConfig::new(base_url, Secret)`. Nothing is read from the 
 
 ## Supported and unavailable features
 
-| Feature | Native OpenAI-compatible | Node (Easy-LLM OpenAI adapter) |
+| Feature | Native (OpenAI-compatible and Anthropic) | Node (Easy-LLM OpenAI adapter) |
 | --- | --- | --- |
 | Text conversations (system, user, assistant) | supported | supported |
 | Streaming with provider-verified completion | supported | supported |
-| Usage on a stream | supported (when the endpoint sends it) | unverified |
-| Finish reason on a stream | supported | supported |
+| Usage on a stream | supported (when the endpoint sends it) | unverified for OpenAI; not carried for Anthropic |
+| Finish reason on a stream | supported | supported for OpenAI; not carried for Anthropic |
+| Output token cap (`max_output_tokens`) | supported | refused before dispatch |
 | HTTP status and `Retry-After` | supported | supported |
 | Refusal text and `content_filter` finish | supported | finish only |
 | Non-streaming generation | not offered | supported |
 | Tool definitions, tool choice, tool-call history, provider tools | refused before dispatch | refused before dispatch |
 | Images | refused before dispatch | refused before dispatch |
-| Max output tokens, reasoning effort, speed | refused before dispatch | refused before dispatch |
+| Reasoning effort, speed | refused before dispatch | refused before dispatch |
+| Sampling temperature | not in the FX contract; Chip drops or refuses it by policy | not in the FX contract |
 | Structured output | refused before dispatch | refused before dispatch |
 | Prompt cache hints | ignored | ignored |
+| Keyless local servers (LM Studio) | supported (`without_key`) | supported |
 | Proxies, custom CA certificates, mTLS | not supported (bundled public roots, no proxy) | uses the Node `fetch` environment |
 | Remote cancellation confirmation | never confirmed (`unconfirmed`) | transport closing is observed |
 
-"Refused before dispatch" is `ErrorKind::CapabilityUnavailable` with `definitely_unsent`, produced by the capability's support gate. The adapter has a second check that fails a tool message, a non-text part or a tool definition with `Unsupported` before any thread starts.
+"Refused before dispatch" is `ErrorKind::CapabilityUnavailable` with `definitely_unsent`, produced by the capability's support gate. The adapter has a second check that fails a tool message, a non-text part, a tool definition, reasoning effort, speed or structured output with `Unsupported` before any thread starts (`definitely_unsent`).
 
 ### Differences from the Node-backed path
 
-Found by running the same scenarios through both paths (below). Three scenarios differ, each recorded in `host/node/conformance/native-parity.mjs`, which fails if a difference changes or disappears.
+Found by running the same scenarios through both paths (below). Each is recorded in `host/node/conformance/native-parity.mjs`, which fails if a difference changes or disappears.
 
 | Scenario | Node (Easy-LLM) | Native |
 | --- | --- | --- |
-| Unparseable line inside a stream | skipped; the attempt completes | protocol violation; text so far kept |
-| Text after `[DONE]` | included in the output (recorded Easy-LLM limitation) | never read |
-| Tool call although none was offered | surfaced as a proposal, then refused by FX | protocol violation; nothing surfaced |
+| Unparseable line inside a stream (both providers) | skipped; the attempt completes | protocol violation; text so far kept |
+| Text after `[DONE]` (OpenAI) | included in the output (recorded Easy-LLM limitation) | never read |
+| Tool call although none was offered (OpenAI) | surfaced as a proposal, then refused by FX | protocol violation; nothing surfaced |
+| Anthropic stop for a tool call although none was offered | completes with finish reason `other` | protocol violation |
+| Anthropic 200 response with no bytes | delivery `possibly_sent` | delivery `confirmed_response` (a complete 2xx response was received) |
+| Anthropic stop reason and usage on a stream | not carried (finish reason `other`, usage unknown) | carried (`stop`, `length`, `content_filter`; token counts) |
 
-Native is the stricter behavior in each. Closing the Node-side gaps belongs to Easy-LLM and is not part of this change.
+Native is the stricter behavior wherever the two differ, and the more informative one for Anthropic streams. For that last row the parity script cannot compare with Node, so it checks the native values against the bytes the mock sent. Closing the Node-side gaps belongs to Easy-LLM and is not part of this change.
 
 ## Conformance
 
@@ -139,11 +161,11 @@ All evidence here is **mocked transport**: a deterministic HTTP server on loopba
 * the TLS path (`https`, certificate validation, bundled roots): the library code is established but no test here exercises a handshake;
 * behavior behind a proxy or with a corporate CA.
 
-Live verification needs a real key and is out of scope for CI. To run one by hand, build `fx-native-provider` into a host, call `OpenAiConfig::new("https://api.openai.com/v1", Secret::new(key))` and execute one request; record the result separately from this document.
+Live verification needs a real key (or a running LM Studio) and is out of scope for CI. To run one by hand, build `fx-native-provider` into a host, configure one provider (for example `AnthropicConfig::new("https://api.anthropic.com/v1", Secret::new(key))`, `OpenAiConfig::new("https://openrouter.ai/api/v1", ..)` or `OpenAiConfig::without_key("http://localhost:1235/v1")`) and execute one request; record the result separately from this document. None has been run.
 
 ### Native conformance suite
 
-`rust/fx-native-provider/tests/conformance.rs` runs 27 cases through the real `fx_core::execute` and `SingleAttemptCapability`:
+`rust/fx-native-provider/tests/conformance.rs` (OpenAI-compatible, 30 cases) and `tests/anthropic.rs` (Anthropic, 18 cases) run through the real `fx_core::execute` and `SingleAttemptCapability`:
 
 * success normalization: text, usage, model, finish reason; length finish; missing usage stays unknown; refusal text with `content_filter`; events split across reads; CRLF framing;
 * request shape: one POST, path, credential only in the header, `stream: true`, no tool surface;
@@ -156,11 +178,13 @@ Live verification needs a real key and is out of scope for CI. To run one by han
 * no hidden retry: every failure case asserts the server saw exactly one connection;
 * credential redaction: a provider that echoes the key in an HTTP error body and in a stream error never leaks it into the report or events; the key is not printable from the configuration.
 
+The Anthropic cases cover the same ground for the Messages format: stream normalization with usage, model and stop reason; request shape (`x-api-key`, `anthropic-version`, top-level `system`, required `max_tokens`, the host default and the request's cap); `max_tokens`/`refusal`/`stop_sequence` mapping; HTTP 401, 403, 404, 429, 500 and 529 with one connection each; error events; cut streams; missing stop reason; unoffered tool use; malformed JSON; unknown events and thinking deltas; refused features; cancellation before dispatch and in flight; budget timeout; closed connection; credential redaction; and configuration validation. `conformance.rs` also covers the output token cap, keyless endpoints and the extra-header rules.
+
 Run: `cd rust/fx-native-provider && cargo test --locked`.
 
 ### Node versus native parity
 
-`host/node/conformance/native-parity.mjs` starts the Node suite's own OpenAI mock server and, for each of 26 scenarios, runs the request through the Node-backed path (Easy-LLM adapter in the WebAssembly executor) and through the native example `native_parity`. Both outcomes are in FX's wire encoding. The script compares outcome type, finish reason, text, usage counts, error kind, origin, delivery certainty, status, retry-after and partial text. Result: 23 identical, 3 documented differences (above), 0 undocumented.
+`host/node/conformance/native-parity.mjs` starts the Node suite's own OpenAI mock server and, for each of 26 scenarios and for both providers (52 runs), runs the request through the Node-backed path (Easy-LLM adapter in the WebAssembly executor) and through the native example `native_parity`. Both outcomes are in FX's wire encoding. The script compares outcome type, finish reason, text, usage counts, error kind, origin, delivery certainty, status, retry-after and partial text. Result: 46 identical, 6 documented differences (above), 0 undocumented.
 
 Run:
 
@@ -174,12 +198,14 @@ cd host/node && npm run build:wasm && npm run conformance:native
 The surface a host needs is small and already enough for `chip-fx`:
 
 ```rust
-let config = OpenAiConfig::new(base_url, Secret::new(api_key))?; // host-provided
+// Explicit, host-provided choices: the provider kind, endpoint, model and key.
+let config = OpenAiConfig::new(base_url, Secret::new(api_key))?; // or without_key(..) for LM Studio
 let mut capability = SingleAttemptCapability::new(OpenAiCompatible::new(config));
+// or: Anthropic::new(AnthropicConfig::new("https://api.anthropic.com/v1", Secret::new(api_key))?)
 let report = fx_core::execute(&mut capability, &request, &Limits::DEFAULT, &mut host);
 ```
 
-Wiring `chip-fx` to this crate is a separate change in `rkendel1/chip-rs`. This change does not touch `chip-legacy-http` or the native `chip` binary, and the session-interop pin is unchanged. Before `chip-legacy-http` can be retired, the unavailable rows above that Chip needs (tool calling, options) must be addressed, and a live-provider check must be recorded.
+Wiring `chip-fx` to this crate is a separate change in `rkendel1/chip-rs`. This change does not touch `chip-legacy-http` or the native `chip` binary, and the session-interop pin is unchanged. Before `chip-legacy-http` can be retired, the unavailable rows above that Chip needs (tool calling, JSON-object output, any sampling options) must be addressed, a native `chip` must have explicit provider selection and key handling, and a live-provider check against Anthropic, LM Studio and OpenRouter must be recorded.
 
 ## CI, licensing and platforms
 

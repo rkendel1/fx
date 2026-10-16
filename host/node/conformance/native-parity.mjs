@@ -11,6 +11,11 @@
 // fields (outcome type, finish reason, text, usage counts, error kind, failure origin, delivery
 // certainty, status, retry-after, partial text) and ignores provider message text.
 //
+// Providers: the OpenAI-compatible wire format (covers OpenRouter and LM Studio, which speak it)
+// and Anthropic. Easy-LLM's streamed Anthropic path does not carry the stop reason or usage (a
+// recorded limitation), so for Anthropic those fields are not compared with the Node path; the
+// native values are instead checked against the bytes the mock sent (NATIVE_ONLY below).
+//
 // Scenarios in DIVERGENCES are known, documented differences: the script fails if one of them
 // starts to match (stale entry) or differs in a way other than recorded. Every other scenario
 // must be identical. This is mocked-transport evidence for both paths; it says nothing about a
@@ -50,18 +55,48 @@ const SCENARIOS = /** @type {[string, number?][]} */ ([
  * @type {Record<string, { why: string, native: Record<string, unknown> }>}
  */
 const DIVERGENCES = {
-  garbage: {
+  "openai:garbage": {
     why: "Easy-LLM skips unparseable stream lines and completes; the native adapter treats them as a protocol violation and keeps the text so far.",
     native: { type: "failed", kind: "protocol_violation", origin: "capability", delivery: "confirmed_response", status_hint: null, retry_after_ms: null, partial: "a " },
   },
-  "tool-call": {
+  "openai:tool-call": {
     why: "No tools were offered. Easy-LLM surfaces the call as a proposal that FX then refuses; the native adapter fails the attempt as a protocol violation before any proposal exists.",
     native: { type: "failed", kind: "protocol_violation", origin: "capability", delivery: "confirmed_response", status_hint: null, retry_after_ms: null, partial: "a" },
   },
-  late: {
+  "anthropic:claims-tools": {
+    why: "The stream stops for a tool call although none was offered. Easy-LLM completes with finish reason other; the native adapter fails the attempt as a protocol violation.",
+    native: { type: "failed", kind: "protocol_violation", origin: "capability", delivery: "confirmed_response", status_hint: null, retry_after_ms: null, partial: "x" },
+  },
+  "anthropic:empty-body": {
+    why: "A 200 response with no bytes. Easy-LLM reports the delivery as possibly sent; the native adapter, which saw a complete 2xx response, reports a confirmed response.",
+    native: { type: "failed", kind: "transport", origin: "executor", delivery: "confirmed_response", status_hint: null, retry_after_ms: null, partial: null },
+  },
+  "anthropic:garbage": {
+    why: "Easy-LLM skips unparseable stream lines and completes; the native adapter treats them as a protocol violation and keeps the text so far.",
+    native: { type: "failed", kind: "protocol_violation", origin: "capability", delivery: "confirmed_response", status_hint: null, retry_after_ms: null, partial: "a " },
+  },
+  "openai:late": {
     why: "Easy-LLM's OpenAI adapter keeps reading after [DONE] (a recorded limitation, late-chunks-after-terminal); the native adapter stops at the provider's marker and never reads or forwards what follows.",
     native: { type: "completed", finish_reason: "stop", content: "a ", input_tokens: null, output_tokens: null, proposals: 0 },
   },
+};
+
+/**
+ * What the native Anthropic provider reports in the fields Easy-LLM drops, per the bytes the
+ * mock sends (scenarios.mjs). Checked against the native outcome.
+ * @type {Record<string, { finish_reason: string, input_tokens: number | null, output_tokens: number | null }>}
+ */
+const NATIVE_ONLY = {
+  "anthropic:ok": { finish_reason: "stop", input_tokens: 5, output_tokens: 2 },
+  "anthropic:length": { finish_reason: "length", input_tokens: null, output_tokens: null },
+  "anthropic:filter": { finish_reason: "content_filter", input_tokens: null, output_tokens: null },
+  "anthropic:unknown": { finish_reason: "other", input_tokens: null, output_tokens: null },
+  "anthropic:empty-terminal": { finish_reason: "stop", input_tokens: null, output_tokens: null },
+  "anthropic:late": { finish_reason: "stop", input_tokens: null, output_tokens: null },
+  "anthropic:usage-none": { finish_reason: "stop", input_tokens: null, output_tokens: null },
+  "anthropic:usage-partial": { finish_reason: "stop", input_tokens: 5, output_tokens: 2 },
+  "anthropic:usage-invalid": { finish_reason: "stop", input_tokens: 5, output_tokens: 2 },
+  "anthropic:tool-call": { finish_reason: "stop", input_tokens: null, output_tokens: null },
 };
 
 /** Scenarios whose partial text keeps growing until the deadline: only its start is stable. */
@@ -73,16 +108,18 @@ function partial(o, scenario) {
   return text !== null && TIMING_DEPENDENT.has(scenario) ? text.slice(0, 6) : text;
 }
 
-/** @param {Record<string, any>} o @param {string} scenario */
-function project(o, scenario) {
+/** @param {Record<string, any>} o @param {string} scenario @param {string} provider */
+function project(o, scenario, provider) {
   switch (o.type) {
     case "completed":
       return {
         type: o.type,
-        finish_reason: o.finish_reason,
+        // Easy-LLM does not carry these on a streamed Anthropic response.
+        ...(provider === "anthropic" ? {} : { finish_reason: o.finish_reason }),
         content: o.content,
-        input_tokens: o.usage?.input_tokens ?? null,
-        output_tokens: o.usage?.output_tokens ?? null,
+        ...(provider === "anthropic"
+          ? {}
+          : { input_tokens: o.usage?.input_tokens ?? null, output_tokens: o.usage?.output_tokens ?? null }),
         proposals: o.proposals.length,
       };
     case "failed":
@@ -121,26 +158,37 @@ function runNative(argv) {
   });
 }
 
+const PROVIDERS = ["openai", "anthropic"];
+
 const harness = await createHarness({ easyLlm });
 const rows = [];
 let problems = 0;
 try {
-  const base = harness.mocks.base("openai");
-  for (const [scenario, budget] of SCENARIOS) {
-    const node = project((await harness.run("openai", scenario, "stream", budget ? { budget } : {})).outcome, scenario);
-    const child = await runNative([base, scenario, ...(budget ? [String(budget)] : [])]);
+  for (const provider of PROVIDERS) for (const [scenario, budget] of SCENARIOS) {
+    const base = harness.mocks.base(/** @type {any} */ (provider));
+    const node = project((await harness.run(/** @type {any} */ (provider), scenario, "stream", budget ? { budget } : {})).outcome, scenario, provider);
+    const child = await runNative([provider, base, scenario, ...(budget ? [String(budget)] : [])]);
     if (child.status !== 0) {
-      process.stderr.write(`${scenario}: native run failed (${child.status}): ${child.stderr}\n`);
+      process.stderr.write(`${provider}:${scenario}: native run failed (${child.status}): ${child.stderr}\n`);
       problems += 1;
       continue;
     }
     if (child.stdout.includes(API_KEY)) {
-      process.stderr.write(`${scenario}: the credential appears in the native outcome\n`);
+      process.stderr.write(`${provider}:${scenario}: the credential appears in the native outcome\n`);
       problems += 1;
     }
-    const native = project(JSON.parse(child.stdout).outcome, scenario);
+    const rawNative = JSON.parse(child.stdout).outcome;
+    const native = project(rawNative, scenario, provider);
+    const wanted = NATIVE_ONLY[`${provider}:${scenario}`];
+    if (wanted !== undefined) {
+      const got = { finish_reason: rawNative.finish_reason, input_tokens: rawNative.usage?.input_tokens ?? null, output_tokens: rawNative.usage?.output_tokens ?? null };
+      if (JSON.stringify(got) !== JSON.stringify(wanted)) {
+        problems += 1;
+        process.stderr.write(`${provider}:${scenario}: native-only fields ${JSON.stringify(got)}, expected ${JSON.stringify(wanted)}\n`);
+      }
+    }
     const same = JSON.stringify(node) === JSON.stringify(native);
-    const known = DIVERGENCES[scenario];
+    const known = DIVERGENCES[`${provider}:${scenario}`];
     let verdict;
     if (known === undefined) {
       verdict = same ? "match" : "MISMATCH";
@@ -151,9 +199,9 @@ try {
     }
     if (!["match", "documented-difference"].includes(verdict)) {
       problems += 1;
-      process.stderr.write(`${scenario}: ${verdict}\n  node:   ${JSON.stringify(node)}\n  native: ${JSON.stringify(native)}\n`);
+      process.stderr.write(`${provider}:${scenario}: ${verdict}\n  node:   ${JSON.stringify(node)}\n  native: ${JSON.stringify(native)}\n`);
     }
-    rows.push({ scenario, verdict });
+    rows.push({ scenario: `${provider}:${scenario}`, verdict });
   }
 } finally {
   await harness.close();
