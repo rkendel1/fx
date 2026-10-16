@@ -59,11 +59,18 @@ flowchart LR
 
 **Exit:** deterministic native conformance with no network, credentials or provider dependency.
 
-## R3: Easy-LLM capability
+## R3: Single-attempt provider capability (this PR)
 
-**Scope**
-- In `rkendel1/llm`, add a lower-level **single-attempt** API. It must expose the events and terminal semantics FX needs without invoking model fallback or duplicating routing policy. FX does not call the high-level `llm()` function.
-- In this repository, add an explicit adapter that implements `fx_core::Capability` over that API. It is a separate crate or feature, so `fx-core`'s dependency allowlist does not grow.
+**Delivered here**
+- `rust/fx-single-attempt`: a separate crate (its only dependency is `fx-core`, so `fx-core`'s allowlist does not grow) with the `ProviderPort` trait, the `SingleAttemptCapability` adapter that implements `fx_core::Capability` over it, the mapping rules, a scripted `FakePort`, 31 offline tests that run the real executor over it, its own `check-boundaries.sh`, and a CI job in `rust-core.yml`.
+- [SINGLE_ATTEMPT.md](SINGLE_ATTEMPT.md): the audit of direct provider invocation versus the routed path, what FX needs from the provider layer, the mapping, and the gaps with the smallest change for each.
+
+**Not delivered here**
+- The provider-side operation itself (`generateOnce` / `streamOnce`) is in `rkendel1/llm`, proposed in draft PR rkendel1/llm#13. It is not part of this repository and is not merged.
+- The Node and WASM bridge that implements `ProviderPort` over it (R4).
+
+**Original scope, still open**
+- A lower-level **single-attempt** API in `rkendel1/llm` that exposes the events and terminal semantics FX needs without model fallback or duplicated routing policy. FX does not call the high-level `llm()` function.
 - Collapse the three inference entry paths (agent loop, web-search worker, permission reviewer) onto the executor. Consumer policy stays with its owners.
 - If the shell must keep working before Easy-LLM is ready, the legacy Gateway path becomes a consumer-owned capability outside the core, with a fixed deletion PR (OD-7).
 
