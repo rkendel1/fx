@@ -34,7 +34,9 @@
     "failure_after_tool.terminal": "approved",
     "failure_after_tool.inference_requests": "approved",
     "failure_after_tool.answer": "approved",
-    "persistence_failure.answers_without_saving": "approved"
+    "persistence_failure.answers_without_saving": "approved",
+    "recovery_after_kill.resumes_the_interrupted_model_response": "approved",
+    "recovery_after_kill.side_effects_replayed_on_rerun": "approved"
   },
   "scenarios": [
     {
@@ -397,61 +399,111 @@
       "id": "permission_modes",
       "what": "ask / auto / yolo permission modes",
       "why": "Chip has one fixed policy (declared capabilities only); no modes.",
-      "category": "compatibility"
+      "category": "compatibility",
+      "decision": "unsupported_in_first_release",
+      "when_requested": "There are no modes; one fixed policy (declared capabilities only). --yolo, --auto and --prompt-permissions are refused as unexpected arguments (exit 2) before anything runs. Verified against the binary.",
+      "decided_by": "repository owner",
+      "decided_on": "2026-10-16",
+      "not_a_parity_claim": true
     },
     {
       "id": "provider_native_tool_loop",
       "what": "provider-native tool definitions and multiple/parallel tool calls in one reply",
       "why": "Chip uses single text decisions (`chip.work-decision.v1`); FX refuses tools by contract.",
-      "category": "core_runtime"
+      "category": "core_runtime",
+      "decision": "unsupported_in_first_release",
+      "when_requested": "One text decision per reply. A reply that is not exactly one clean decision object is rejected, never repaired, and the work ends; FX refuses tool definitions in the request.",
+      "decided_by": "repository owner",
+      "decided_on": "2026-10-16",
+      "not_a_parity_claim": true
     },
     {
       "id": "silent_tool_continuation",
       "what": "continuing after tools that produce no model-visible output",
       "why": "not ported",
-      "category": "core_runtime"
+      "category": "core_runtime",
+      "decision": "unsupported_in_first_release",
+      "when_requested": "Every execution result is returned to the model as an observation; there is no mode that continues without asking the model.",
+      "decided_by": "repository owner",
+      "decided_on": "2026-10-16",
+      "not_a_parity_claim": true
     },
     {
       "id": "step_limit_pause",
       "what": "pausing at the step limit and continuing with `--continue-recovery`",
       "why": "Chip ends the work at the limit; there is no pause/continue.",
-      "category": "core_runtime"
+      "category": "core_runtime",
+      "decision": "unsupported_in_first_release",
+      "when_requested": "The work ends as limit_reached, which is not a completion. There is no pause, --resume or --continue-recovery (those flags are refused, exit 2). Verified against the binary and by the step_limit scenario.",
+      "decided_by": "repository owner",
+      "decided_on": "2026-10-16",
+      "not_a_parity_claim": true
     },
     {
       "id": "images_and_vision",
       "what": "image attachments and the vision tool",
       "why": "FX refuses non-text parts in the native providers.",
-      "category": "product_surfaces"
+      "category": "product_surfaces",
+      "decision": "unsupported_in_first_release",
+      "when_requested": "--image is refused (exit 2) and Chip sends text only; FX refuses non-text parts. Verified against the binary.",
+      "decided_by": "repository owner",
+      "decided_on": "2026-10-16",
+      "not_a_parity_claim": true
     },
     {
       "id": "subagents_mcp_skills_memory",
       "what": "subagents, MCP tools, skills, memory, web tools",
       "why": "no Rust equivalent exists",
-      "category": "product_surfaces"
+      "category": "product_surfaces",
+      "decision": "unsupported_in_first_release",
+      "when_requested": "No such capabilities are declared. A model request for one is an undeclared capability: the decision is rejected, nothing executes, the work ends as failed with no retry (scenarios unknown_tool and shell_not_executed).",
+      "decided_by": "repository owner",
+      "decided_on": "2026-10-16",
+      "not_a_parity_claim": true
     },
     {
       "id": "interactive_permission_prompts",
       "what": "interactive approval of a denied action",
       "why": "no Rust equivalent exists",
-      "category": "safety_correctness"
+      "category": "safety_correctness",
+      "decision": "unsupported_in_first_release",
+      "when_requested": "Chip never prompts. An unauthorized request is refused and the work fails closed; it is not parked for a human (scenarios unknown_tool, shell_not_executed, write_outside_workspace).",
+      "decided_by": "repository owner",
+      "decided_on": "2026-10-16",
+      "not_a_parity_claim": true
     },
     {
       "id": "cancel_after_tool",
       "what": "cancellation between a tool result and the next request",
       "why": "not driven by this corpus yet",
-      "category": "safety_correctness"
+      "category": "safety_correctness",
+      "decision": "unsupported_in_first_release",
+      "when_requested": "Cancelling the process ends it; no completion is reported and no further tool runs. The service's cancel endpoint is advisory for a call in flight. An effect that already ran stays done.",
+      "decided_by": "repository owner",
+      "decided_on": "2026-10-16",
+      "not_a_parity_claim": true
     },
     {
       "id": "persistence_failure_after_work_ran",
       "what": "a publish failure after the work has already executed (Persistence::NotCommitted / Uncertain)",
       "why": "covered by chip-turns tests but cannot be injected through the shipped binary or turn_tool; not part of this run",
-      "category": "safety_correctness"
+      "category": "safety_correctness",
+      "decision": "unsupported_in_first_release",
+      "when_requested": "The shipped binary persists nothing. With chip-turns the result is NotCommitted or Uncertain, never Committed, and the work is not reported as durably recorded. Covered by chip-turns tests; not injectable through the binary, so not part of this run.",
+      "decided_by": "repository owner",
+      "decided_on": "2026-10-16",
+      "not_a_parity_claim": true
     },
     {
       "id": "duplicate_side_effects_guard",
       "what": "an idempotence guard so a capability whose result was never committed is not executed again when a crashed turn is re-run",
       "why": "the shipped chip binary does not persist turns, and re-running a prompt after a crash re-executes the capability; needs a design decision (persist intent before execution, or refuse capabilities with side effects in persisted turns)",
-      "category": "safety_correctness"
+      "category": "safety_correctness",
+      "decision": "unsupported_in_first_release",
+      "when_requested": "No guard exists. Re-running an interrupted prompt may execute a capability again. Documented prominently (README, RELEASE_NOTES.md, release-limitations.md, chip work usage); there is no exactly-once guarantee.",
+      "decided_by": "repository owner",
+      "decided_on": "2026-10-16",
+      "not_a_parity_claim": true
     }
   ],
   "approval_record": {
@@ -502,18 +554,54 @@
           "persistence_failure.answers_without_saving"
         ],
         "rationale": "Do not claim a turn succeeded when the required persistence operation failed."
+      },
+      {
+        "decision": "Interrupted-response recovery is not provided: the turn stays uncommitted and is not automatically replayed",
+        "covers": [
+          "recovery_after_kill.resumes_the_interrupted_model_response"
+        ],
+        "rationale": "The first Rust release does not resume an interrupted model response. This is a release-scope decision, not a claim of behavioral equivalence with the Zig agent."
+      },
+      {
+        "decision": "Re-running a prompt after an interruption can repeat a capability; no exactly-once guarantee",
+        "covers": [
+          "recovery_after_kill.side_effects_replayed_on_rerun"
+        ],
+        "rationale": "Recovery initiated by a user may execute a capability again. Persistence alone does not provide idempotency. Callers must account for possible duplicate side effects when retrying interrupted work."
       }
     ],
-    "deliberately_not_approved": [
+    "accepted_as_known_limitations": [
       "recovery_after_kill.resumes_the_interrupted_model_response",
       "recovery_after_kill.side_effects_replayed_on_rerun"
     ],
-    "not_approved_note": "Crash recovery, replay of side effects, and post-execution publication failure are safety and correctness questions, not cosmetic differences. The shipped chip binary does not persist turns; re-running a prompt can execute a capability again. They stay open."
+    "conditions": "The two recovery approvals hold only while the retry warning is visible to callers. The corpus's required_notices must be found in the chip-rs checkout the run was made against; the gate counts the approvals only when they are."
   },
   "categories": {
     "safety_correctness": "duplicate side effects, authorization, cancellation, publication failures: each needs an explicit design decision before Zig's loop can retire",
     "core_runtime": "pause/resume, parallel tool calls, silent-tool continuation: needs a clear supported or unsupported contract, not necessarily an implementation",
     "product_surfaces": "images, subagents, MCP, skills, memory, web: a supported/unsupported contract for the first Rust release",
     "compatibility": "permission modes and similar details that may not be needed for the first Rust release"
-  }
+  },
+  "required_notices": [
+    {
+      "file": "README.md",
+      "marker": "RETRYING A TURN MAY REPEAT EXTERNAL EFFECTS"
+    },
+    {
+      "file": "RELEASE_NOTES.md",
+      "marker": "RETRYING A TURN MAY REPEAT EXTERNAL EFFECTS"
+    },
+    {
+      "file": "docs/product/release-limitations.md",
+      "marker": "RETRYING A TURN MAY REPEAT EXTERNAL EFFECTS"
+    },
+    {
+      "file": "scripts/package-release.sh",
+      "marker": "RELEASE_NOTES.md"
+    },
+    {
+      "file": "crates/chip-cli/src/software_work.rs",
+      "marker": "RETRYING A TURN MAY REPEAT EXTERNAL EFFECTS"
+    }
+  ]
 }

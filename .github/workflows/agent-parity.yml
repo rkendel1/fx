@@ -102,6 +102,7 @@ jobs:
             --chip-bin chip-rs/target/debug/chip \
             --turn-tool chip-rs/target/debug/examples/turn_tool \
             --session-tool chip-rs/target/debug/examples/session_tool \
+            --chip-rs-dir chip-rs \
             --chip-rs-ref "$CHIP_RS_REF" \
             --out "$RUNNER_TEMP/agent-parity.json"
 

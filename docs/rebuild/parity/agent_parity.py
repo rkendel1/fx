@@ -384,22 +384,52 @@ def judge(sc: dict, zig: dict, rust: dict) -> dict:
     return {"status": status, "matched": matched, "differences": differences, "unclassified": unclassified, "stale": stale}
 
 
+def valid_decision(entry: dict) -> bool:
+    """An unsupported behavior counts as decided only with an explicit decision and a stated runtime behavior."""
+    return entry.get("decision") == "unsupported_in_first_release" and bool(str(entry.get("when_requested", "")).strip())
+
+
+def check_notices(corpus: dict, chip_rs_dir: Path | None) -> list[dict]:
+    """Looks for each required notice in the chip-rs checkout the run was made against."""
+    out = []
+    for n in corpus.get("required_notices", []):
+        found = False
+        if chip_rs_dir is not None:
+            try:
+                found = n["marker"] in (chip_rs_dir / n["file"]).read_text(encoding="utf-8")
+            except OSError:
+                found = False
+        out.append({"file": n["file"], "marker": n["marker"], "found": found})
+    return out
+
+
 def gate(corpus: dict, results: dict) -> dict:
     scen = results["scenarios"]
     unclassified = [s for s, r in sorted(scen.items()) if r["verdict"]["status"] in ("unclassified_difference", "stale_declared_difference") or r.get("error")]
+    notices = results.get("notices", [])
+    notices_verified = all(n["found"] for n in notices) and len(notices) == len(corpus.get("required_notices", []))
+    accepted_limits = set(corpus.get("approval_record", {}).get("accepted_as_known_limitations", []))
     open_items = []
     for sid, r in sorted(scen.items()):
         for d in r["verdict"]["differences"]:
-            if corpus["approvals"].get(f"{sid}.{d['field']}") != "approved":
+            key = f"{sid}.{d['field']}"
+            approved = corpus["approvals"].get(key) == "approved"
+            # A known-limitation approval is conditional on callers being able to see the warning.
+            if approved and key in accepted_limits and not notices_verified:
+                approved = False
+            if not approved:
                 open_items.append({"scenario": sid, "field": d["field"], "class": d["class"]})
-    blockers = [b["id"] for b in corpus["unsupported_behaviors"]]
+    undecided = sorted(b["id"] for b in corpus["unsupported_behaviors"] if not valid_decision(b))
     return {
         "run_is_valid": not unclassified,
         "invalid_scenarios": unclassified,
         "unapproved_differences": open_items,
-        "unsupported_behaviors": blockers,
+        # Kept visible: decided means "explicitly unsupported in the first release", not "has parity".
+        "unsupported_behaviors": [b["id"] for b in corpus["unsupported_behaviors"]],
+        "undecided_unsupported_behaviors": undecided,
         "unsupported_by_category": {c: sorted(b["id"] for b in corpus["unsupported_behaviors"] if b["category"] == c) for c in sorted(corpus["categories"])},
-        "retirement_ready": not unclassified and not open_items and not blockers,
+        "release_notices_verified": notices_verified,
+        "retirement_ready": not unclassified and not open_items and not undecided and notices_verified,
     }
 
 
@@ -430,12 +460,14 @@ def cmd_run(args) -> int:
         except Exception as error:  # a scenario that cannot run is a failure of the run, never a pass
             scen[sc["id"]] = {"requirement": sc["requirement"], "about": sc["about"], "error": repr(error),
                               "verdict": {"status": "unclassified_difference", "matched": [], "differences": [], "unclassified": [], "stale": []}}
+    notices = check_notices(corpus, Path(args.chip_rs_dir).resolve() if args.chip_rs_dir else None)
     results = {
         "schema": 1, "corpus": corpus["version"], "corpus_sha256": sha256(CORPUS),
         "tools": {"zig_fx": subprocess.run([str(fx), "--version"], capture_output=True, text=True).stdout.strip(), "zig_fx_sha256": sha256(fx),
                   "chip": subprocess.run([str(chip), "--version"], capture_output=True, text=True).stdout.strip(), "chip_sha256": sha256(chip),
                   "chip_rs_ref": args.chip_rs_ref, "python": platform.python_version()},
         "scenarios": scen,
+        "notices": notices,
     }
     results["gate"] = gate(corpus, results)
     Path(args.out).write_text(json.dumps(results, indent=2, sort_keys=True) + "\n")
@@ -461,7 +493,8 @@ def print_summary(results: dict) -> None:
             print(f"ERROR {sid}: {r['error']}")
     g = results["gate"]
     print(f"run valid: {g['run_is_valid']}; unapproved differences: {len(g['unapproved_differences'])}; "
-          f"unsupported behaviors: {len(g['unsupported_behaviors'])}; retirement ready: {g['retirement_ready']}")
+          f"unsupported behaviors: {len(g['unsupported_behaviors'])} ({len(g['undecided_unsupported_behaviors'])} undecided); "
+          f"release notices verified: {g['release_notices_verified']}; retirement ready: {g['retirement_ready']}")
 
 
 def cmd_check(args) -> int:
@@ -484,6 +517,9 @@ def cmd_check(args) -> int:
             errors.append(f"approval {key!r} names no declared difference")
         if value != "approved":
             errors.append(f"approval {key!r} must be exactly 'approved'")
+    required = [(n["file"], n["marker"]) for n in corpus.get("required_notices", [])]
+    if [(n["file"], n["marker"]) for n in results.get("notices", [])] != required:
+        errors.append("the stored release-notice check is not for the corpus's required notices")
     fresh = gate(corpus, results)
     if fresh != results.get("gate"):
         errors.append("the stored gate does not follow from the stored scenarios")
@@ -497,7 +533,7 @@ def cmd_check(args) -> int:
 
 def cmd_diff(args) -> int:
     a, b = (json.loads(Path(p).read_text()) for p in (args.a, args.b))
-    same = a["corpus_sha256"] == b["corpus_sha256"] and a["scenarios"] == b["scenarios"] and a["gate"] == b["gate"]
+    same = a["corpus_sha256"] == b["corpus_sha256"] and a["scenarios"] == b["scenarios"] and a["gate"] == b["gate"] and a.get("notices") == b.get("notices")
     if not same:
         for sid in sorted(set(a["scenarios"]) | set(b["scenarios"])):
             if a["scenarios"].get(sid) != b["scenarios"].get(sid):
@@ -514,6 +550,7 @@ def main() -> int:
     run.add_argument("--chip-bin", required=True)
     run.add_argument("--turn-tool", required=True)
     run.add_argument("--session-tool", required=True)
+    run.add_argument("--chip-rs-dir", default="", help="the chip-rs checkout the binaries were built from; the required release notices are looked for in it")
     run.add_argument("--chip-rs-ref", default="", help="the chip-rs commit the binaries were built from, recorded in the results")
     run.add_argument("--out", default=str(DEFAULT_RESULTS))
     diff = sub.add_parser("diff", help="fail unless two results agree on every scenario and the gate (binary hashes are ignored)")

@@ -40,6 +40,8 @@ Differences, all classified, none approved yet:
 
 ## Approvals
 
+**Update 2026-10-16.** The owner accepted the two crash-recovery differences as known limitations for the first Rust release and declared all ten unsupported behaviors unsupported (each keeps its entry, category, rationale and a stated `when_requested` runtime behavior). The recovery approvals are conditional: the gate counts them only while the retry warning is found in the chip-rs checkout the run was made against (`required_notices`). `retirement_ready` is computed from these recorded decisions and the evidence; it is not set by hand, and it is not a parity claim. The text below describes the earlier state.
+
 Only reviewed differences are approved (`approvals` and `approval_record` in the corpus). Approved on 2026-10-16 by the repository owner: Chip fails closed on an unauthorized tool; Chip makes one attempt and surfaces provider failure (no implicit retry); Chip refuses writes outside the workspace; Chip refuses to run a turn when required persistence fails. These approve the *intended behavior*, not the absence of bugs. **Deliberately not approved:** `recovery_after_kill.resumes_the_interrupted_model_response` and `recovery_after_kill.side_effects_replayed_on_rerun`; crash recovery, replay of side effects and post-execution publication failure are safety questions, not cosmetic differences.
 
 ## Unsupported behaviors by release impact
