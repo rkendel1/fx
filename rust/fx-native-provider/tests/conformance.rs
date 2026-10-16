@@ -744,3 +744,55 @@ fn template_thinking_is_absent_unless_the_host_sets_it() {
             .is_none()
     );
 }
+
+// ---- plain http on a private LAN: keyless, explicit opt-in only -------------------------------
+
+fn run_lan(base_url: &str) -> ExecutionReport {
+    let config = OpenAiConfig::without_key_on_private_lan(base_url).unwrap();
+    let mut capability = SingleAttemptCapability::new(OpenAiCompatible::new(config));
+    execute(
+        &mut capability,
+        &request(),
+        &Limits::DEFAULT,
+        &mut TestHost::default(),
+    )
+}
+
+#[test]
+fn the_opt_in_completes_against_a_private_lan_address_and_sends_no_credential() {
+    let Some(ip) = support::private_local_ip() else {
+        return;
+    };
+    let server = Server::start_on(
+        &ip,
+        vec![sse(vec![delta("lan ok"), finish("stop"), done()])],
+    );
+    let report = run_lan(&server.base_url);
+    assert_eq!(completion(&report).content, "lan ok");
+    let head = server.recorded()[0].head.to_ascii_lowercase();
+    assert!(!head.contains("authorization"), "{head}");
+    assert!(!head.contains("x-api-key"), "{head}");
+}
+
+#[test]
+fn a_redirect_from_a_lan_endpoint_is_a_failure_and_is_not_followed() {
+    let Some(ip) = support::private_local_ip() else {
+        return;
+    };
+    let elsewhere = Server::start(vec![sse(vec![delta("elsewhere"), finish("stop"), done()])]);
+    let server = Server::start_on(
+        &ip,
+        vec![http(
+            307,
+            vec![(
+                "location",
+                format!("{}/chat/completions", elsewhere.base_url),
+            )],
+            "",
+        )],
+    );
+    let report = run_lan(&server.base_url);
+    assert_eq!(failed(&report).status_hint, Some(307));
+    assert_eq!(elsewhere.connections(), 0, "the redirect was not followed");
+    assert_eq!(server.connections(), 1, "one request, no retry");
+}
