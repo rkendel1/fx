@@ -691,20 +691,6 @@ pub fn parseAuthorizationRedirect(
     return .{ .code = code, .state = state, .issuer = issuer };
 }
 
-pub fn generatePkce(
-    verifier_buf: *[64]u8,
-    challenge_buf: *[43]u8,
-    random: std.Random,
-) struct { verifier: []const u8, challenge: []const u8 } {
-    var entropy: [48]u8 = undefined;
-    random.bytes(&entropy);
-    const verifier = std.base64.url_safe_no_pad.Encoder.encode(verifier_buf, &entropy);
-    var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
-    std.crypto.hash.sha2.Sha256.hash(verifier, &digest, .{});
-    const challenge = std.base64.url_safe_no_pad.Encoder.encode(challenge_buf, &digest);
-    return .{ .verifier = verifier, .challenge = challenge };
-}
-
 pub fn bearerHeaderAlloc(alloc: Allocator, access_token: []const u8) ![]u8 {
     return std.fmt.allocPrint(alloc, "Bearer {s}", .{access_token});
 }

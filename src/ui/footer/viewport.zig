@@ -333,13 +333,6 @@ const FrameSink = struct {
     }
 };
 
-fn expectGridRow(grid: *vt_emulator.Grid, row: u16, expected: []const u8) !void {
-    var buf: std.ArrayList(u8) = .empty;
-    defer buf.deinit(std.testing.allocator);
-    try grid.rowTextTrimmed(row, &buf);
-    try std.testing.expectEqualStrings(expected, buf.items);
-}
-
 fn footerSurfaceTestPlan(cols: u16) paint_plan.PaintPlan {
     return .{
         .layout = .{

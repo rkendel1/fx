@@ -202,10 +202,6 @@ pub fn blockKindForNoticeTone(tone: types.NoticeTone) TranscriptBlockKind {
     };
 }
 
-pub fn blockGapRowsBetween(prev: TranscriptBlockKind, next: TranscriptBlockKind) u16 {
-    return default_block_gap_policy.gapBetween(prev, next);
-}
-
 fn blockKindForEntry(entry: TranscriptEntry) TranscriptBlockKind {
     return switch (entry) {
         .raw_bytes => |e| blockKindForRawClass(e.class),
@@ -2663,14 +2659,6 @@ pub const RenderedBlock = struct {
         if (self.owned) alloc.free(self.allocation);
     }
 };
-
-pub fn transcriptLineCount(text: []const u8) usize {
-    var total: usize = 1;
-    for (text) |byte| {
-        if (byte == '\n') total += 1;
-    }
-    return total;
-}
 
 fn deinitTestEntries(entries: *std.ArrayList(TranscriptEntry), alloc: Allocator) void {
     for (entries.items) |*entry| entry.deinit(alloc);

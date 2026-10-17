@@ -181,10 +181,6 @@ fn localContextWindowSize(model: []const u8) ?u32 {
     return null;
 }
 
-pub fn contextWindowSize(model: []const u8) ?u32 {
-    return capabilitiesForModel(model).context_window;
-}
-
 pub fn resolveProviderOptions(model: []const u8, effort: types.ReasoningEffort, fast_mode: bool) ResolvedProviderOptions {
     return resolveProviderOptionsForCapabilities(capabilitiesForModel(model), effort, fast_mode);
 }

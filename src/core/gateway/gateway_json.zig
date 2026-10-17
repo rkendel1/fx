@@ -141,21 +141,6 @@ pub fn buildGatewayRequestBodyWithVerifiedImagesAndBudget(
     );
 }
 
-pub fn buildGatewayRequiredToolRequestBodyWithOptions(
-    alloc: std.mem.Allocator,
-    tools_json: []const u8,
-    messages: []const ChatMessage,
-    options: model_capabilities.ResolvedProviderOptions,
-) ![]u8 {
-    return buildGatewayRequiredToolRequestBodyWithOptionsAndOutputLimit(
-        alloc,
-        tools_json,
-        messages,
-        options,
-        null,
-    );
-}
-
 pub fn buildGatewayRequiredToolRequestBodyWithOptionsAndOutputLimit(
     alloc: std.mem.Allocator,
     tools_json: []const u8,

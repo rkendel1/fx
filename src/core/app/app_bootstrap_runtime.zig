@@ -841,21 +841,6 @@ fn runBootstrapForTest(app: *TestApp, capture: *TestCapture) !void {
     );
 }
 
-fn tracePathForTest(alloc: Allocator, tmp: std.testing.TmpDir, name: []const u8) ![]u8 {
-    const io_mod = @import("../shared/io.zig");
-    const root = try io_mod.dirRealpathAlloc(alloc, tmp.dir, ".");
-    defer alloc.free(root);
-    return std.fs.path.join(alloc, &.{ root, name });
-}
-
-fn readTraceForTest(alloc: Allocator, path: []const u8) ![]u8 {
-    const io_mod = @import("../shared/io.zig");
-    debug_trace.shutdown();
-    var file = try std.Io.Dir.openFileAbsolute(io_mod.getIo(), path, .{});
-    defer file.close(io_mod.getIo());
-    return io_mod.readFileToEnd(alloc, &file, 8192);
-}
-
 fn resizeHandlerForTest(_: std.posix.SIG) callconv(.c) void {}
 
 test "app_bootstrap_runtime transfers startup state and starts a fresh session" {

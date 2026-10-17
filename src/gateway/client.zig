@@ -157,7 +157,6 @@ const HttpResult = struct {
     }
 };
 
-pub const PostResult = HttpResult;
 pub const GetResult = HttpResult;
 
 pub const GatewayJsonResult = union(enum) {
@@ -605,73 +604,6 @@ pub fn generationBaseUrl() []const u8 {
 pub fn isTrustedGenerationOrigin(origin: []const u8) bool {
     return std.mem.eql(u8, origin, default_gateway_base_url) or
         isLoopbackHttpUrl(origin);
-}
-
-pub fn postGatewayCompletion(
-    alloc: std.mem.Allocator,
-    api_key: []const u8,
-    model: []const u8,
-    retry_count: usize,
-    chat_url: []const u8,
-    payload: []const u8,
-) !PostResult {
-    const request_url = try resolveE2eGatewayUrl(e2e_gateway_chat_url_env, chat_url);
-    var attempt: usize = 0;
-    while (attempt < retry_count) : (attempt += 1) {
-        debug_trace.logf("stream", "open attempt={d}/{d} url={s} payload_bytes={d}", .{ attempt + 1, retry_count, request_url, payload.len });
-        var client: std.http.Client = .{ .allocator = alloc, .io = io_mod.getIo() };
-        defer client.deinit();
-
-        const auth_header = try std.fmt.allocPrint(alloc, "Bearer {s}", .{api_key});
-        defer secret.zeroAndFree(alloc, auth_header);
-
-        const extra_headers = [_]std.http.Header{
-            .{ .name = "HTTP-Referer", .value = "https://github.com/vercel-labs/fx" },
-            .{ .name = "X-Title", .value = "fx" },
-            .{ .name = "Accept", .value = "application/json" },
-            .{ .name = "ai-gateway-protocol-version", .value = "0.0.1" },
-            .{ .name = "ai-language-model-specification-version", .value = "4" },
-            .{ .name = "ai-language-model-id", .value = model },
-            .{ .name = "ai-language-model-streaming", .value = "false" },
-        };
-
-        var out: std.Io.Writer.Allocating = .init(alloc);
-        defer out.deinit();
-
-        const result = client.fetch(.{
-            .location = .{ .url = request_url },
-            .method = .POST,
-            .payload = payload,
-            .headers = .{
-                .content_type = .{ .override = "application/json" },
-                .authorization = .{ .override = auth_header },
-                .accept_encoding = .omit,
-                .user_agent = .{ .override = user_agent },
-            },
-            .extra_headers = &extra_headers,
-            .response_writer = &out.writer,
-        }) catch |err| {
-            if (isRetryableGatewayError(err) and attempt + 1 < retry_count) {
-                io_mod.sleep((attempt + 1) * 150 * std.time.ns_per_ms);
-                continue;
-            }
-            return err;
-        };
-
-        if (isRetryableGatewayStatus(result.status) and attempt + 1 < retry_count) {
-            const delay_ns = retryBackoffDelayNs(attempt);
-            debug_trace.logf("stream", "retrying status={d} attempt={d} delay_ms={d}", .{ @intFromEnum(result.status), attempt + 1, delay_ns / std.time.ns_per_ms });
-            io_mod.sleep(delay_ns);
-            continue;
-        }
-
-        return .{
-            .status = result.status,
-            .body = try out.toOwnedSlice(),
-        };
-    }
-
-    return error.HttpConnectionClosing;
 }
 
 /// Monotonic request-delivery evidence. It becomes possibly sent before the
@@ -2404,10 +2336,6 @@ fn extractFirstJsonStringValue(args: []const u8) ?[]const u8 {
         if (args[i] == '"') return args[start..i];
     }
     return null;
-}
-
-fn isReasoningSseEvent(event_type: []const u8) bool {
-    return std.mem.startsWith(u8, event_type, "reasoning-");
 }
 
 fn finish_reason_label(finish_reason: ?types.ProviderFinishReason) []const u8 {

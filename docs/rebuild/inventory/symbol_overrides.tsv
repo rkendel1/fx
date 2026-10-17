@@ -58,7 +58,6 @@ src/core/shared/types.zig	freeImageAttachmentSlice	INF-CONTENT	FX	REBUILD
 src/core/shared/types.zig	BackendKind	EXE-SANDBOX	Compute	MOVE	`vercel` and `just_bash` variants are REMOVE
 src/gateway/client.zig	isRetryableGatewayError	INF-ERR	FX	REBUILD	neutral transport-failure classification
 src/gateway/client.zig	networkFailureEvidence	INF-ERR	FX	REBUILD	
-src/gateway/client.zig	PostResult	PRV-GATEWAY	Easy-LLM	MOVE	
 src/gateway/client.zig	GetResult	PRV-GATEWAY	Easy-LLM	MOVE	
 src/gateway/client.zig	GatewayJsonResult	PRV-GATEWAY	Easy-LLM	MOVE	
 src/gateway/client.zig	fetchGatewayJson	PRV-CATALOG	Easy-LLM	MOVE	
@@ -67,7 +66,6 @@ src/gateway/client.zig	fetchGatewayJsonCancellable	PRV-CATALOG	Easy-LLM	MOVE
 src/gateway/client.zig	fetchGatewayGenerationResult	INF-USAGE	Easy-LLM	MOVE	/v1/generation reconciliation
 src/gateway/client.zig	generationBaseUrl	INF-USAGE	Easy-LLM	MOVE	
 src/gateway/client.zig	isTrustedGenerationOrigin	INF-USAGE	Easy-LLM	MOVE	
-src/gateway/client.zig	postGatewayCompletion	PRV-GATEWAY	Easy-LLM	REMOVE	dead non-streaming path; test-only callers
 src/gateway/client.zig	vercel_ai_gateway_team_header	PRV-GATEWAY	Easy-LLM	REMOVE	
 src/gateway/client.zig	isLoopbackHttpUrl	PRV-GATEWAY	Easy-LLM	MOVE	credential-gating rule
 src/gateway/client.zig	streamGatewayCompletion	PRV-GATEWAY	Easy-LLM	MOVE	Gateway stream entry
@@ -97,11 +95,6 @@ src/builtins/gateway.zig	executeGatewayWorker	AGT-WEB	Chip	MOVE	web-search worke
 src/builtins/gateway.zig	providerToolsJson	AGT-WEB	Chip	MOVE	
 src/builtins/gateway.zig	fetchModelIds	PRV-CATALOG	Easy-LLM	REMOVE	test-only public function
 src/builtins/gateway.zig	fetchModelIdsCancellable	PRV-CATALOG	Easy-LLM	REMOVE	test-only
-src/builtins/gateway.zig	fetchPickerModelIdsCancellable	PRV-CATALOG	Easy-LLM	REMOVE	test-only
-src/builtins/gateway.zig	fetchModelCatalog	PRV-CATALOG	Easy-LLM	MOVE	
-src/builtins/gateway.zig	fetchModelCatalogCancellable	PRV-CATALOG	Easy-LLM	MOVE	
-src/builtins/gateway.zig	fetchPickerModelCatalog	PRV-CATALOG	Easy-LLM	REMOVE	test-only
-src/builtins/gateway.zig	fetchPickerModelCatalogCancellable	PRV-CATALOG	Easy-LLM	REMOVE	test-only
 src/builtins/gateway.zig	parseModelCatalogForView	PRV-CATALOG	Easy-LLM	MOVE	
 src/core/agent/runtime/gateway_step.zig	streamGatewayCompletion	INF-EXEC	FX	REBUILD	becomes fx.execute
 src/core/agent/runtime/gateway_step.zig	recordSelectedDynamicTool	AGT-MCP	Chip	MOVE	

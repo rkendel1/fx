@@ -127,10 +127,6 @@ pub fn composeFileApprovalScreenRow(
     };
 }
 
-pub fn approvalPanelRowsForLayout(shell: *const TranscriptRuntime) u16 {
-    return approvalPanelRowsForTerminalRows(shell.layout.rows);
-}
-
 pub fn inlineApprovalPanelRows(
     alloc: Allocator,
     label: []const u8,

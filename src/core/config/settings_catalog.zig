@@ -203,11 +203,6 @@ pub fn appearanceChoiceCount() usize {
     return appearance_choices.len;
 }
 
-pub fn appearanceChoiceAt(index: usize) ?AppearanceChoice {
-    if (index >= appearance_choices.len) return null;
-    return appearance_choices[index];
-}
-
 pub const StatuslineChoice = struct {
     label: []const u8,
     description: []const u8,
@@ -347,15 +342,6 @@ pub const SandboxMenu = struct {
     }
 };
 
-pub fn sandboxChoiceCount() usize {
-    return sandbox_choices.len;
-}
-
-pub fn sandboxChoiceAt(index: usize) ?SandboxChoice {
-    if (index >= sandbox_choices.len) return null;
-    return sandbox_choices[index];
-}
-
 fn moveCompactSelection(active: bool, selected_index: usize, delta: i32, count: usize) ?usize {
     if (!active or delta == 0 or count == 0) return null;
     const count_signed: i32 = @intCast(count);
@@ -470,15 +456,6 @@ pub fn filteredCount(snapshot: Snapshot, category: Category, query: []const u8) 
     var count: usize = 0;
     for (specs) |spec| {
         if (matches(snapshot, spec, category, query)) count += 1;
-    }
-    return count;
-}
-
-pub fn categoryFilteredCount(snapshot: Snapshot, category: Category, query: []const u8) usize {
-    if (category == .all) return filteredCount(snapshot, .all, query);
-    var count: usize = 0;
-    for (specs) |spec| {
-        if (spec.category == category and matchesQuery(snapshot, spec, query)) count += 1;
     }
     return count;
 }

@@ -148,15 +148,6 @@ pub fn runBeforeInteractive(alloc: Allocator, args: []const [:0]const u8, cfg: C
     return beforeInteractiveResultFromRunResult(alloc, run_result, benchEnabled());
 }
 
-pub fn runNoConfigBeforeInteractive(
-    alloc: Allocator,
-    args: []const [:0]const u8,
-    version: []const u8,
-    command_catalog: command_specs.TopLevelRegistry,
-) !?RunOutcome {
-    return if (try cli_surface.runNoConfigIfRequested(alloc, args, version, command_catalog)) .returned else null;
-}
-
 fn runBeforeInteractiveWithDeps(alloc: Allocator, args: []const [:0]const u8, cfg: Config, deps: RunDeps) !BeforeInteractiveResult {
     _ = cli_surface.recordRequested(args) catch {
         writeStderr(deps, cli_surface.record_modifier_usage);

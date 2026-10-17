@@ -1103,29 +1103,6 @@ fn composeAndPushVisibleInputRows(
     return placement;
 }
 
-fn composeInputRowsSnapshot(
-    alloc: Allocator,
-    input: []const u8,
-    cursor: usize,
-    images: []const types.ImageAttachment,
-    width: u16,
-    row_limit: usize,
-) ![]u8 {
-    const source = visual_layout.Source{ .input = input, .cursor = cursor, .terminal_cols = width, .images = images };
-    const summary = visual_layout.summarize(source, null);
-    const window = visual_layout.visibleWindow(summary.cursor.row_index, summary.total_rows, row_limit);
-    var rows = try input_presentation.composeVisibleInputRows(alloc, source, window, .lines, .arrow);
-    defer rows.deinit(alloc);
-
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(alloc);
-    for (rows.rows.items, 0..) |row, i| {
-        if (i > 0) try out.append(alloc, '\n');
-        try out.appendSlice(alloc, row.items);
-    }
-    return try out.toOwnedSlice(alloc);
-}
-
 fn pushFooterBandRow(
     alloc: Allocator,
     frame: *footer_viewport.ComposedFooterFrame,

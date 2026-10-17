@@ -721,26 +721,6 @@ fn expectJsonToken(token: std.json.Token, comptime expected: std.json.TokenType)
     if (actual != expected) return error.InvalidSessionIndex;
 }
 
-fn appendLatestWorkspaceSummary(alloc: Allocator, latest: *std.ArrayList(WorkspaceLatest), workspace_root: []const u8, session_id: []const u8) !void {
-    for (latest.items) |*entry| {
-        if (!std.mem.eql(u8, entry.workspace_root, workspace_root)) continue;
-        if (std.mem.order(u8, session_id, entry.session_id) != .gt) return;
-        const replacement_id = try alloc.dupe(u8, session_id);
-        alloc.free(entry.session_id);
-        entry.session_id = replacement_id;
-        return;
-    }
-
-    const owned_workspace_root = try alloc.dupe(u8, workspace_root);
-    errdefer alloc.free(owned_workspace_root);
-    const owned_session_id = try alloc.dupe(u8, session_id);
-    errdefer alloc.free(owned_session_id);
-    try latest.append(alloc, .{
-        .workspace_root = owned_workspace_root,
-        .session_id = owned_session_id,
-    });
-}
-
 /// Parses the session index document into newest-first summaries, validating
 /// the schema version and each id. Caller owns and frees the list.
 fn parseSessionIndex(alloc: Allocator, json_text: []const u8) !std.ArrayList(SessionSummary) {

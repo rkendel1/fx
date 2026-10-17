@@ -1,8 +1,21 @@
 # Retiring Zig: inventory, order and gates
 
-Measured on `main` (`find src -name '*.zig'`): **543 files, about 684,000 lines** under `src/`, plus two Zig test files. Nothing
-below is retired yet. This document is the plan; `docs/rebuild/retirement.json` holds the machine-checked gates and
-`docs/rebuild/tools/check_retirement.py` enforces them. A gate is met only when that script proves it.
+Measured on `main` (`find src -name '*.zig'`): **543 files, about 684,000 lines** under `src/`, plus two Zig test files, before the
+dead-code removal below. No Zig behaviour is retired yet; only unreachable Zig code is (see **Retired so far**). This document is the plan;
+`docs/rebuild/retirement.json` holds the machine-checked gates and `docs/rebuild/tools/check_retirement.py` enforces them. A gate is met
+only when that script proves it.
+
+## Retired so far
+
+| Entry | What went | Gate |
+| --- | --- | --- |
+| `zig-dead-code` | 69 container-level `fn`/`const` declarations in 39 files whose name occurred only at the definition, and three re-export facades (`src/core/background/background.zig`, `src/gateway/web_search.zig`, `src/gateway/web_search_types.zig`) that only `main.zig`'s test block imported. About 540 lines, deletions only. | `zig_dead_code.py --check` reports zero, and the facade paths are absent |
+
+The scan that found these is a name-based token count, not a proof of semantic unreachability (its limits are in the docstring of
+`docs/rebuild/tools/zig_dead_code.py`). Each deletion was confirmed by building the binary, the WASM core and term surfaces, the N-API
+surface and the three benchmarks, and by running the unit suite against an unmodified `main` baseline. The gate keeps the count at zero,
+so code orphaned by later retirement steps has to leave with them. A future hit is a candidate to verify the same way, not a licence to
+delete.
 
 ## What Rust owns today
 
@@ -53,10 +66,11 @@ Per-file ownership is in `docs/rebuild/inventory/` (generated; do not edit by ha
 - a Rust crate depending on a Chip crate; a second `execute` entry point; an HTTP client under the executor crates;
 - a blocked entry that names no blockers;
 - **new:** any Rust manifest or `build.rs` that mentions Zig, and any Rust source that references `zig-out`, `build.zig` or `libfx`,
-  so Rust cannot quietly come to depend on Zig outputs while Zig is being retired.
+  so Rust cannot quietly come to depend on Zig outputs while Zig is being retired;
+- a `retired` entry whose `paths_absent` still exist, or whose `check` script fails (today: `zig-dead-code`, which runs
+  `zig_dead_code.py --check`).
 
-It does not yet verify that retired Zig paths are gone, because nothing is retired. When the first Zig area is deleted, its entry moves to
-`retired` with the paths that must not exist, and the script gains that check in the same PR.
+Each later Zig area moves to `retired` the same way: its deleted paths go in `paths_absent` in the PR that deletes them.
 
 ## Not claimed
 

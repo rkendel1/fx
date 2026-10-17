@@ -749,10 +749,6 @@ fn buildTestGatewayToolProjectionForRegistry(alloc: Allocator, tools: []const to
     return buildGatewayToolProjectionForSet(alloc, testToolSetForRegistry(tools), options);
 }
 
-fn buildTestReadOnlyGatewayToolProjection(alloc: Allocator, options: Options) !EffectiveToolProjection {
-    return buildReadOnlyGatewayToolProjectionForSet(alloc, test_tool_set, options);
-}
-
 pub fn buildGatewayToolProjectionForSet(alloc: Allocator, tool_set: tool_set_contract.ToolSet, options: Options) !EffectiveToolProjection {
     return buildToolProjection(alloc, tool_set, .full, options);
 }
@@ -991,13 +987,6 @@ fn countName(names: []const []const u8, expected: []const u8) usize {
         if (std.mem.eql(u8, name, expected)) count += 1;
     }
     return count;
-}
-
-fn indexOfName(names: []const []const u8, expected: []const u8) !usize {
-    for (names, 0..) |name, index| {
-        if (std.mem.eql(u8, name, expected)) return index;
-    }
-    return error.TestExpectedEqual;
 }
 
 fn appendTestMcpTool(runtime: *mcp_runtime.McpRuntime, server_index: usize, name: []const u8) !void {
@@ -1243,20 +1232,6 @@ test "target-specific edit and bash denies keep tools advertised" {
     try expectContainsName(names.items, "edit_file");
     try expectContainsName(names.items, "write_file");
     try expectContainsName(names.items, "terminal");
-}
-
-fn writeTestRegisteredProviderAdvertisement(
-    _: Allocator,
-    writer: *std.Io.Writer,
-) tool_dispatch.GatewayAdvertisementError!void {
-    try writer.writeAll("{\"type\":\"provider\",\"id\":\"fixture.registered\",\"name\":\"registered_provider\",\"args\":{}}");
-}
-
-fn writeTestSecondRegisteredProviderAdvertisement(
-    _: Allocator,
-    writer: *std.Io.Writer,
-) tool_dispatch.GatewayAdvertisementError!void {
-    try writer.writeAll("{\"type\":\"provider\",\"id\":\"fixture.second\",\"name\":\"second_provider\",\"args\":{}}");
 }
 
 fn checkEffectiveToolProjectionAllocationFailures(alloc: Allocator) !void {

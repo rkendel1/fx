@@ -109,7 +109,6 @@ const LegacyUrlWaiter = legacy_url_completion.Waiter;
 const LegacyUrlWireCompletionIdentity = legacy_url_completion.WireCompletionIdentity;
 const EarlyLegacyUrlCompletion = legacy_url_completion.EarlyCompletion;
 const LegacyUrlCompletionCandidate = legacy_url_completion.Candidate;
-const LegacyUrlCompletionPublication = legacy_url_completion.Publication;
 const LegacyUrlCompletionReplayStep = legacy_url_completion.ReplayStep;
 const LegacyUrlCompletionWindow = legacy_url_completion.Window;
 const legacyUrlCandidateMatchesWire = legacy_url_completion.candidateMatchesWire;
@@ -10150,13 +10149,6 @@ const LegacyInitializeSuccess = struct {
     version: LegacyStdioVersion,
 };
 
-fn parseToolsListChangedCapabilityFromResponse(
-    alloc: Allocator,
-    response: []const u8,
-) !bool {
-    return (try parseServerCapabilitiesFromResponse(alloc, response)).tools_list_changed;
-}
-
 const ParsedServerCapabilities = struct {
     tools_list_changed: bool = false,
     features: ServerCapabilities = .{},
@@ -10197,10 +10189,6 @@ fn parseAndStoreServerIdentity(
     if (server.negotiated_server_version) |old| alloc.free(old);
     server.negotiated_server_name = name;
     server.negotiated_server_version = version;
-}
-
-fn parseToolsListChangedCapability(value: std.json.Value) !bool {
-    return (try parseServerCapabilities(value)).tools_list_changed;
 }
 
 fn parseServerCapabilities(value: std.json.Value) !ParsedServerCapabilities {

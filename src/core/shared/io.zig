@@ -281,12 +281,6 @@ pub fn setEnvironMap(m: *const std.process.Environ.Map) void {
     global_raw_environ = null;
 }
 
-pub fn setEnvironBlock(block: std.process.Environ.Block) void {
-    global_environ = null;
-    global_environ_block = block;
-    global_raw_environ = null;
-}
-
 pub fn setRawEnviron(raw: RawEnviron) void {
     global_environ = null;
     global_environ_block = null;

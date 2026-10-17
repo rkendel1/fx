@@ -393,18 +393,6 @@ pub fn isTerminalSafe(raw: []const u8) bool {
     return true;
 }
 
-pub fn terminalSafeVisibleWidth(raw: []const u8) usize {
-    var width: usize = 0;
-    var index: usize = 0;
-    while (index < raw.len) {
-        var token_buf: [12]u8 = undefined;
-        const token = terminalSafeToken(raw, index, &token_buf);
-        width += display_width.visibleWidth(token.bytes);
-        index += token.source_len;
-    }
-    return width;
-}
-
 pub fn clippedLabel(buf: []u8, text: []const u8, max_len: usize) []const u8 {
     if (buf.len == 0 or max_len == 0) return "";
     if (display_width.visibleWidth(text) <= max_len) return text;
