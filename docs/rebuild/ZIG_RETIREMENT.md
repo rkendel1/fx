@@ -11,8 +11,11 @@ only when that script proves it.
 | --- | --- | --- |
 | `zig-dead-code` | 69 container-level `fn`/`const` declarations in 39 files whose name occurred only at the definition, and three re-export facades (`src/core/background/background.zig`, `src/gateway/web_search.zig`, `src/gateway/web_search_types.zig`) that only `main.zig`'s test block imported. About 540 lines, deletions only. | `zig_dead_code.py --check` reports zero, and the facade paths are absent |
 
-Removing never-referenced code changes no behaviour: Zig analyses a declaration only when something references it, so none of these
-were compiled into any binary. The gate keeps the count at zero, so code orphaned by later retirement steps has to leave with them.
+The scan that found these is a name-based token count, not a proof of semantic unreachability (its limits are in the docstring of
+`docs/rebuild/tools/zig_dead_code.py`). Each deletion was confirmed by building the binary, the WASM core and term surfaces, the N-API
+surface and the three benchmarks, and by running the unit suite against an unmodified `main` baseline. The gate keeps the count at zero,
+so code orphaned by later retirement steps has to leave with them. A future hit is a candidate to verify the same way, not a licence to
+delete.
 
 ## What Rust owns today
 

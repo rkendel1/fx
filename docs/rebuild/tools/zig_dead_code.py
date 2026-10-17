@@ -3,9 +3,22 @@
 
 Read-only. A top-level `fn` or `const` (pub or not) is dead when its name occurs exactly once as an identifier
 token across every tracked `.zig` file under src/, tests/ and benchmarks/ plus build.zig, so the only occurrence
-is the definition itself. Tokens inside string literals count too, so names reached through `@field`,
-`@hasDecl` or similar string lookups are not reported. The check is lexical and conservative: a name shared with
-any other identifier anywhere keeps its declaration alive, so it under-reports and never flags live code.
+is the definition itself. Tokens inside string literals count too, so a name spelled out whole in an `@field` or
+`@hasDecl` string is not reported.
+
+Limits. This is a name-based token count, not a semantic reachability proof:
+
+* It can flag a declaration that is still used. Zig can reach a declaration without spelling its name: a name
+  assembled at comptime (`"fetch" ++ "Model"`) for `@field`/`@hasDecl`, iteration over `@typeInfo(T).@"struct".decls`
+  (a public-surface audit, a comptime registry), or a lookup by a name supplied from outside the scanned files
+  (JS/N-API glue, scripts, build options). A hit is a candidate. Delete it only after the build, every build
+  surface (`-Dwasm-surface`, `-Dnapi-surface`, benchmarks) and the test suite pass without it.
+* It misses most dead code: any declaration whose name is shared with another identifier anywhere stays alive.
+* It does not see unused `export fn` declarations, struct members, or whole files (a file is only as dead as its
+  importers).
+
+A clean result therefore says only that no declaration is referenced by its definition alone. It does not prove
+that anything else is safe to delete.
 
 Usage (from the repository root):
 
