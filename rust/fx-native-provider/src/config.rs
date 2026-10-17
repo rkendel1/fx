@@ -34,6 +34,9 @@ pub struct Common {
     pub(crate) default_deadline: Duration,
     /// Host-supplied trust roots that replace the bundled public roots. `None` keeps the bundle.
     pub(crate) root_certs: Option<RootCerts>,
+    /// A host-configured HTTP CONNECT proxy. `None` connects directly. Never read from the
+    /// environment.
+    pub(crate) proxy: Option<ProxySettings>,
     /// A plain-`http` private-LAN endpoint accepted by the keyless opt-in. No header may be
     /// added to such a configuration, so nothing credential-like can ride along in the clear.
     insecure_lan: bool,
@@ -75,6 +78,46 @@ fn is_private_lan_ip(host: &str) -> bool {
         Ok(std::net::IpAddr::V6(ip)) => (ip.segments()[0] & 0xfe00) == 0xfc00,
         Err(_) => false,
     }
+}
+
+/// An explicit HTTP CONNECT proxy: where it is, how to authenticate to it, and which hosts
+/// bypass it. The password is a [`Secret`]: it never appears in `Debug`, an error or a message.
+#[derive(Clone, Debug)]
+pub(crate) struct ProxySettings {
+    pub(crate) host: String,
+    pub(crate) port: u16,
+    pub(crate) credentials: Option<(String, Secret)>,
+    pub(crate) no_proxy: Vec<String>,
+}
+
+impl ProxySettings {
+    /// The `ureq` proxy these settings describe. Built per call, never stored, because its
+    /// `Debug` would show the password.
+    pub(crate) fn build(&self) -> Result<ureq::Proxy, ConfigError> {
+        let mut builder = ureq::Proxy::builder(ureq::ProxyProtocol::Http)
+            .host(&self.host)
+            .port(self.port);
+        if let Some((username, password)) = &self.credentials {
+            builder = builder.username(username).password(password.expose());
+        }
+        for entry in &self.no_proxy {
+            builder = builder.no_proxy(entry);
+        }
+        builder
+            .build()
+            .map_err(|_| ConfigError("the proxy configuration is not valid".into()))
+    }
+}
+
+/// Characters a proxy username or password may hold: they are placed in a URL's userinfo
+/// unescaped, so anything that would change how that URL parses is refused.
+fn userinfo_safe(value: &str, colon_allowed: bool) -> bool {
+    !value.is_empty()
+        && value.bytes().all(|b| {
+            b.is_ascii_alphanumeric()
+                || b"-._~!$&'()*+,;=".contains(&b)
+                || (colon_allowed && b == b':')
+        })
 }
 
 impl Common {
@@ -122,6 +165,7 @@ impl Common {
             connect_timeout: CONNECT_TIMEOUT,
             default_deadline: DEFAULT_DEADLINE,
             root_certs: None,
+            proxy: None,
             insecure_lan,
         })
     }
@@ -175,6 +219,90 @@ impl Common {
         Ok(())
     }
 
+    pub(crate) fn set_proxy(&mut self, url: &str) -> Result<(), ConfigError> {
+        if self.insecure_lan {
+            return Err(ConfigError(
+                "a plain-http LAN endpoint is not reached through a proxy".into(),
+            ));
+        }
+        // Through a tunnel the proxy sees a plain-http request in full, credential included.
+        if self.key.is_some() && self.base_url.starts_with("http://") {
+            return Err(ConfigError(
+                "a credential is never sent over plain http through a proxy".into(),
+            ));
+        }
+        let rest = url
+            .trim()
+            .trim_end_matches('/')
+            .strip_prefix("http://")
+            .ok_or_else(|| {
+                ConfigError("the proxy must be an http:// CONNECT proxy (http://host:port)".into())
+            })?;
+        if rest.contains(['@', '/', '?', '#']) || rest.contains(char::is_whitespace) {
+            return Err(ConfigError(
+                "the proxy URL is host:port only; credentials go through with_proxy_credentials"
+                    .into(),
+            ));
+        }
+        let (host, port) = rest
+            .rsplit_once(':')
+            .filter(|(host, _)| !host.is_empty())
+            .ok_or_else(|| ConfigError("the proxy URL needs an explicit port".into()))?;
+        let port = port
+            .parse::<u16>()
+            .ok()
+            .filter(|port| *port != 0)
+            .ok_or_else(|| ConfigError("the proxy port is not valid".into()))?;
+        let settings = ProxySettings {
+            host: host.to_owned(),
+            port,
+            credentials: None,
+            no_proxy: Vec::new(),
+        };
+        settings.build()?;
+        self.proxy = Some(settings);
+        Ok(())
+    }
+
+    pub(crate) fn set_proxy_credentials(
+        &mut self,
+        username: &str,
+        password: Secret,
+    ) -> Result<(), ConfigError> {
+        let proxy = self
+            .proxy
+            .as_mut()
+            .ok_or_else(|| ConfigError("set a proxy before its credentials".into()))?;
+        if !userinfo_safe(username, false) || !userinfo_safe(password.expose(), true) {
+            return Err(ConfigError(
+                "proxy credentials may hold only letters, digits and -._~!$&'()*+,;= (and : in the password)"
+                    .into(),
+            ));
+        }
+        proxy.credentials = Some((username.to_owned(), password));
+        Ok(())
+    }
+
+    pub(crate) fn add_no_proxy(&mut self, host: &str) -> Result<(), ConfigError> {
+        let proxy = self
+            .proxy
+            .as_mut()
+            .ok_or_else(|| ConfigError("set a proxy before its exceptions".into()))?;
+        let bare = host.trim_start_matches("*.").trim_start_matches('.');
+        if host == "*"
+            || bare.is_empty()
+            || !bare
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
+        {
+            return Err(ConfigError(format!(
+                "{host:?} is not a host, .domain or *.domain"
+            )));
+        }
+        proxy.no_proxy.push(host.to_owned());
+        Ok(())
+    }
+
     pub(crate) fn endpoint(&self, path: &str) -> String {
         format!("{}/{path}", self.base_url)
     }
@@ -210,6 +338,35 @@ macro_rules! shared_builders {
         /// filesystem or the environment.
         pub fn with_root_certificates_pem(mut self, pem: &[u8]) -> Result<Self, ConfigError> {
             self.common.set_root_certificates(pem)?;
+            Ok(self)
+        }
+
+        /// Reaches the endpoint through an HTTP CONNECT proxy at `url` (`http://host:port`).
+        /// The tunnel carries the TLS session end to end; with a TLS-intercepting proxy, pass
+        /// its CA with [`with_root_certificates_pem`](Self::with_root_certificates_pem). The
+        /// host supplies the proxy explicitly; this crate never reads `HTTP_PROXY` or similar.
+        /// A proxy failure is the call's failure: there is no direct connection as a fallback.
+        /// A credential is never sent over plain `http` through a proxy.
+        pub fn with_proxy(mut self, url: &str) -> Result<Self, ConfigError> {
+            self.common.set_proxy(url)?;
+            Ok(self)
+        }
+
+        /// Authenticates to the proxy (Basic). The password never appears in an error, a
+        /// message or `Debug` output.
+        pub fn with_proxy_credentials(
+            mut self,
+            username: &str,
+            password: Secret,
+        ) -> Result<Self, ConfigError> {
+            self.common.set_proxy_credentials(username, password)?;
+            Ok(self)
+        }
+
+        /// Connects to `host` directly instead of through the proxy: `example.com` exactly,
+        /// or `.example.com` / `*.example.com` for its subdomains.
+        pub fn with_no_proxy(mut self, host: &str) -> Result<Self, ConfigError> {
+            self.common.add_no_proxy(host)?;
             Ok(self)
         }
     };
@@ -428,6 +585,85 @@ iZCe/neitgIgb1IFqNXOjw0/7R5oHwzaJiUCaJ+R5Waxy1oxMw8U2LM=\n\
     fn https_and_loopback_configurations_do_not_become_lan_configurations() {
         let config = lan("http://127.0.0.1:1234/v1").unwrap();
         assert!(config.with_header("X-Title", "t").is_ok());
+    }
+
+    #[test]
+    fn a_proxy_is_explicit_validated_and_never_carries_a_credential_in_the_clear() {
+        let https = || OpenAiConfig::new("https://openrouter.ai/api/v1", Secret::new("k")).unwrap();
+        assert!(
+            https().common.proxy.is_none(),
+            "no proxy unless the host sets one"
+        );
+        let proxied = https()
+            .with_proxy("http://proxy.internal:3128")
+            .unwrap()
+            .with_proxy_credentials("svc", Secret::new("p4ss:word"))
+            .unwrap()
+            .with_no_proxy(".corp.example")
+            .unwrap();
+        let proxy = proxied.common.proxy.as_ref().unwrap();
+        assert_eq!((proxy.host.as_str(), proxy.port), ("proxy.internal", 3128));
+        assert!(proxy.build().is_ok());
+        assert!(!format!("{proxied:?}").contains("p4ss:word"));
+
+        for url in [
+            "https://proxy:3128",
+            "socks5://proxy:1080",
+            "http://proxy",
+            "http://proxy:0",
+            "http://user:pw@proxy:3128",
+            "http://proxy:3128/path",
+            "proxy:3128",
+        ] {
+            assert!(https().with_proxy(url).is_err(), "{url}");
+        }
+        assert!(
+            https()
+                .with_proxy_credentials("u", Secret::new("p"))
+                .is_err(),
+            "credentials need a proxy"
+        );
+        assert!(
+            https().with_no_proxy("x.example").is_err(),
+            "exceptions need a proxy"
+        );
+        for (user, pass) in [
+            ("a@b", "p"),
+            ("a:b", "p"),
+            ("u", "p/w"),
+            ("u", "p@w"),
+            ("", "p"),
+        ] {
+            assert!(
+                https()
+                    .with_proxy("http://proxy:3128")
+                    .unwrap()
+                    .with_proxy_credentials(user, Secret::new(pass))
+                    .is_err(),
+                "{user}:{pass}"
+            );
+        }
+        for host in ["*", "", "a b", "a/b"] {
+            assert!(
+                https()
+                    .with_proxy("http://proxy:3128")
+                    .unwrap()
+                    .with_no_proxy(host)
+                    .is_err(),
+                "{host:?}"
+            );
+        }
+        // A key over plain http would be visible to the proxy; a keyless loopback is not.
+        let keyed_http = OpenAiConfig::new("http://127.0.0.1:1234/v1", Secret::new("k")).unwrap();
+        assert!(keyed_http.with_proxy("http://proxy:3128").is_err());
+        let keyless_http = OpenAiConfig::without_key("http://127.0.0.1:1234/v1").unwrap();
+        assert!(keyless_http.with_proxy("http://proxy:3128").is_ok());
+        assert!(
+            lan("http://192.168.1.20:1234/v1")
+                .unwrap()
+                .with_proxy("http://proxy:3128")
+                .is_err()
+        );
     }
 
     #[test]

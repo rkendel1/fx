@@ -4,6 +4,8 @@
 //! Each accepted connection takes the next scripted [`Reply`]; the server records every
 //! request so tests can prove how many calls were made and what was (not) sent.
 
+pub mod proxy;
+
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
