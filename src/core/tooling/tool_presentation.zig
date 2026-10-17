@@ -15,7 +15,6 @@ const Allocator = std.mem.Allocator;
 const ToolCall = types.ToolCall;
 const max_run_command_activity_bytes = 120;
 const max_run_command_activity_source_bytes = max_run_command_activity_bytes * max_run_command_activity_bytes;
-pub const max_auto_permission_reason_presentation_bytes: usize = 160;
 
 pub const ToolActionInput = struct {
     tool_registry: tool_dispatch.Registry,

@@ -352,13 +352,6 @@ fn composeStyledText(alloc: Allocator, text: []const u8, width: u16, style: []co
     return row;
 }
 
-fn cloneClipped(alloc: Allocator, text: []const u8, width: u16) !std.ArrayList(u8) {
-    var row: std.ArrayList(u8) = .empty;
-    errdefer row.deinit(alloc);
-    try row_text.appendClipped(alloc, &row, text, width);
-    return row;
-}
-
 const test_snapshot: settings_catalog.Snapshot = .{
     .model = "zai/glm-5.2",
     .effort = "default",

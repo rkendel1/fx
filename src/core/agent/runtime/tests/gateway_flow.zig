@@ -117,11 +117,6 @@ fn expectFailedLifecycleContains(
     return error.TestExpectedEqual;
 }
 
-fn expectNoticeContains(hooks: *const FakeAgentRuntimeDeps, index: usize, needle: []const u8) !void {
-    try std.testing.expect(index < hooks.system_notices.items.len);
-    try std.testing.expect(std.mem.find(u8, hooks.system_notices.items[index], needle) != null);
-}
-
 fn expectRouteStatus(
     hooks: *const FakeAgentRuntimeDeps,
     index: usize,

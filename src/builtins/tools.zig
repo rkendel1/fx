@@ -2813,12 +2813,6 @@ test "built-in registry uses executable web_fetch implementation" {
     try std.testing.expect(std.mem.find(u8, body, "UnsupportedScheme") != null);
 }
 
-fn expectRegisteredNames(names: []const []const u8) !void {
-    for (names) |name| {
-        try std.testing.expect(registry.lookup(name) != null);
-    }
-}
-
 test "built-in read-only tool set matches plan inspection tools" {
     const expected_names = [_][]const u8{
         "read_file",

@@ -1150,10 +1150,6 @@ fn writeParallelDomains(writer: *std.Io.Writer, name: []const u8, domains: []con
     try writer.writeAll("]}");
 }
 
-fn boundedDupe(alloc: Allocator, text: []const u8, max_len: usize) ![]u8 {
-    return try alloc.dupe(u8, text[0..@min(text.len, max_len)]);
-}
-
 fn hasValues(values: ?[]const []const u8) bool {
     return if (values) |actual| actual.len > 0 else false;
 }
@@ -1959,41 +1955,6 @@ pub fn fetchModelIdsCancellable(
     return fetchModelIdsForView(alloc, access, path, cancel_flag, .full);
 }
 
-pub fn fetchPickerModelIdsCancellable(
-    alloc: std.mem.Allocator,
-    access: credentials.CatalogAccess,
-    path: []const u8,
-    cancel_flag: *std.atomic.Value(bool),
-) !std.ArrayList([]u8) {
-    return fetchModelIdsForView(alloc, access, path, cancel_flag, .picker);
-}
-
-pub fn fetchModelCatalog(alloc: std.mem.Allocator, access: credentials.CatalogAccess, path: []const u8) !std.ArrayList(ModelCatalogEntry) {
-    return fetchModelCatalogForView(alloc, access, path, null, .full);
-}
-
-pub fn fetchModelCatalogCancellable(
-    alloc: std.mem.Allocator,
-    access: credentials.CatalogAccess,
-    path: []const u8,
-    cancel_flag: *std.atomic.Value(bool),
-) !std.ArrayList(ModelCatalogEntry) {
-    return fetchModelCatalogForView(alloc, access, path, cancel_flag, .full);
-}
-
-pub fn fetchPickerModelCatalog(alloc: std.mem.Allocator, access: credentials.CatalogAccess, path: []const u8) !std.ArrayList(ModelCatalogEntry) {
-    return fetchModelCatalogForView(alloc, access, path, null, .picker);
-}
-
-pub fn fetchPickerModelCatalogCancellable(
-    alloc: std.mem.Allocator,
-    access: credentials.CatalogAccess,
-    path: []const u8,
-    cancel_flag: *std.atomic.Value(bool),
-) !std.ArrayList(ModelCatalogEntry) {
-    return fetchModelCatalogForView(alloc, access, path, cancel_flag, .picker);
-}
-
 pub const model_catalog_provider = model_catalog.Provider{
     .fetch_fn = fetchCatalogForProvider,
 };
@@ -2341,10 +2302,6 @@ fn parseSortedModelCatalog(alloc: std.mem.Allocator, json_text: []const u8) !std
 
 fn parsePickerModelIds(alloc: std.mem.Allocator, json_text: []const u8) !std.ArrayList([]u8) {
     return parseModelIdsForView(alloc, json_text, .picker);
-}
-
-fn parsePickerModelCatalog(alloc: std.mem.Allocator, json_text: []const u8) !std.ArrayList(ModelCatalogEntry) {
-    return parseModelCatalogForView(alloc, json_text, .picker);
 }
 
 fn parseModelCatalogEntry(alloc: std.mem.Allocator, entry: std.json.Value) !?ModelCatalogEntry {

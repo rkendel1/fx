@@ -155,19 +155,6 @@ fn expectGrantListsEqual(
     }
 }
 
-fn expectNoGrantPermission(
-    grants: []const PermissionGrant,
-    permission: []const u8,
-) !void {
-    for (grants) |grant| {
-        try std.testing.expect(!std.mem.eql(
-            u8,
-            grant.tool_name,
-            permission,
-        ));
-    }
-}
-
 fn logContains(hooks: *const FakeAgentRuntimeDeps, needle: []const u8) bool {
     for (hooks.log.items) |entry| {
         if (std.mem.find(u8, entry, needle) != null) return true;

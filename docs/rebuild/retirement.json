@@ -6,6 +6,17 @@
       "id": "chip-rs-toy-fx-core",
       "what": "fx-core and fx-provider-http crates in rkendel1/chip-rs",
       "gate": "chip-rs has no crate named fx-core, fx-provider-http or fx-single-attempt"
+    },
+    {
+      "id": "zig-dead-code",
+      "what": "Zig declarations and facade files that no build root or test reaches: 69 container-level fn/const declarations in 39 files and three re-export facades",
+      "gate": "no tracked Zig fn or const is referenced only by its own definition (zig_dead_code.py --check), and the facade files are gone",
+      "check": "docs/rebuild/tools/zig_dead_code.py",
+      "paths_absent": [
+        "src/core/background/background.zig",
+        "src/gateway/web_search.zig",
+        "src/gateway/web_search_types.zig"
+      ]
     }
   ],
   "blocked": [

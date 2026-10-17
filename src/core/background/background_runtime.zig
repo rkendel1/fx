@@ -3251,7 +3251,6 @@ fn expectNoBackgroundLifecycleTracePathLeak(source: []const u8) !void {
 test "background lifecycle traces stay metadata only" {
     const sources = [_][]const u8{
         @embedFile("background_runtime.zig"),
-        @embedFile("background.zig"),
         @embedFile("background_commands.zig"),
         @embedFile("background_store.zig"),
         @embedFile("process_supervisor.zig"),

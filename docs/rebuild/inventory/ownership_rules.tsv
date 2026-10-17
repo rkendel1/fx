@@ -134,8 +134,6 @@ src/gateway/generation_usage.zig	INF-USAGE	Easy-LLM	MOVE	Gateway generation-cost
 src/gateway/host_stream_provider.zig	INF-BIND	FX	REBUILD	host-supplied transport; closest existing shape to a capability binding
 src/gateway/js_host_model_catalog.zig	PRV-CATALOG	Easy-LLM	MOVE
 src/gateway/js_host_stream_provider.zig	INF-BIND	FX	REBUILD
-src/gateway/web_search.zig	AGT-WEB	Chip	MOVE
-src/gateway/web_search_types.zig	AGT-WEB	Chip	MOVE
 src/main.zig	PRD-APP	fx-shell	INVESTIGATE	composition root and version
 src/mcp_test_exports.zig	AGT-MCP	Chip	MOVE
 src/napi_core_main.zig	EMB-NAPI	FX	REBUILD	N-API root: replace ACP agent surface with inference API

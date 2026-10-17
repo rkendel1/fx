@@ -1931,22 +1931,6 @@ fn permissionRulesForSnapshot(alloc: Allocator, active_rules: anytype) !types.Pe
     return .{ .rules = rules };
 }
 
-fn loadLatestWorkspaceSessionDetail(
-    alloc: Allocator,
-    store: session_store.Store,
-) !session_store.ReadOnlyDetail {
-    var summary = try store.latestReadOnlyWorkspaceSummary(alloc);
-    defer summary.deinit(alloc);
-    return store.loadReadOnlyDetail(alloc, summary.id, .{});
-}
-
-fn loadLatestWorkspaceSessionSummary(
-    alloc: Allocator,
-    store: session_store.Store,
-) !session_store.SessionSummary {
-    return store.latestReadOnlyWorkspaceSummary(alloc);
-}
-
 fn loadWorkspaceBackgroundRecords(
     alloc: Allocator,
     process_provider: background_process_provider.Provider,
@@ -2256,13 +2240,6 @@ fn findBackgroundRecord(records: []const background_store.Record, target: Persis
             }
             break :blk null;
         },
-    };
-}
-
-fn loadBackgroundRecord(alloc: Allocator, store: background_store.Store, target: PersistedRecordTarget) !background_store.Record {
-    return switch (target) {
-        .last => store.loadLatest(alloc),
-        .id => |id| store.load(alloc, id),
     };
 }
 

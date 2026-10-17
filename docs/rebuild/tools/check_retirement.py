@@ -39,6 +39,17 @@ def main() -> int:
         if not entry.get("blockers"):
             errors.append(f"blocked entry {entry['id']} names no blockers")
 
+    for entry in cfg["retired"]:
+        for path in entry.get("paths_absent", []):
+            if (ROOT / path).exists():
+                errors.append(f"retired entry {entry['id']}: {path} must not exist")
+        if entry.get("check"):
+            done = __import__("subprocess").run([sys.executable, "-I", str(ROOT / entry["check"]), "--check"],
+                                               capture_output=True, text=True)
+            if done.returncode != 0:
+                errors.append(f"retired entry {entry['id']}: {entry['check']} failed: "
+                              + (done.stdout.strip() or done.stderr.strip()).replace("\n", "; "))
+
     forbidden = set(cfg["fx_must_not_depend_on"])
     manifests = [p for p in (ROOT / "rust").glob("*/Cargo.toml")]
     for m in manifests:

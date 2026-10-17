@@ -38,13 +38,6 @@ test {
     _ = activity_runtime;
 }
 
-fn allocDimmedTranscriptLine(alloc: std.mem.Allocator, text: []const u8) ![]u8 {
-    if (std.mem.endsWith(u8, text, "\n")) {
-        return std.fmt.allocPrint(alloc, "{s}{s}{s}\n", .{ ui_render.dim_style, text[0 .. text.len - 1], reset_style });
-    }
-    return std.fmt.allocPrint(alloc, "{s}{s}{s}", .{ ui_render.dim_style, text, reset_style });
-}
-
 fn discardTable(_: *anyopaque, table: assistant_presentation.TablePayload) !void {
     var owned = table;
     owned.deinit(std.heap.c_allocator);

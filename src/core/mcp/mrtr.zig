@@ -40,7 +40,6 @@ const RootsRequest = struct {
     }
 };
 
-const ElicitationMode = elicitation.Mode;
 const ElicitationRequest = elicitation.Request;
 
 const RequestPayload = union(enum) {

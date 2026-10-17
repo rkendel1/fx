@@ -7058,19 +7058,6 @@ fn readEmittedSince(h: *Harness, since_offset: u64) ![]u8 {
     return buf;
 }
 
-fn gridContains(grid: Grid, needle: []const u8) !void {
-    var row: u16 = 1;
-    var buf: std.ArrayList(u8) = .empty;
-    defer buf.deinit(grid.alloc);
-
-    while (row <= grid.rows) : (row += 1) {
-        buf.clearRetainingCapacity();
-        try grid.rowTextTrimmed(row, &buf);
-        if (std.mem.find(u8, buf.items, needle) != null) return;
-    }
-    return error.TestMissingMarker;
-}
-
 test "mid-drag resize does not emit scrollback wipe" {
     const alloc = std.testing.allocator;
     var h = try Harness.init(alloc, 80, 24, 4);
