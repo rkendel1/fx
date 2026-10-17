@@ -63,9 +63,11 @@ Libraries: `ureq` 3 (blocking HTTP) with `rustls` and bundled `webpki-roots`, an
 
 ### One call
 
-`invoke` validates the request, starts one worker thread, and returns. The worker makes exactly one `POST`, follows no redirects, ignores proxy environment variables, and streams the response into a channel. `poll` waits up to 25 ms on that channel and returns what arrived. There is no retry, no fallback, no routing and no second request; `check-boundaries.sh` enforces a single `.post(` site in the source.
+`invoke` validates the request, starts one worker thread, and returns. The worker makes exactly one `POST`, follows no redirects, ignores proxy environment variables (a proxy is only ever the host's explicit setting, below), and streams the response into a channel. `poll` waits up to 25 ms on that channel and returns what arrived. There is no retry, no fallback, no routing and no second request; `check-boundaries.sh` enforces a single `.post(` site in the source.
 
 Trust roots: `https` endpoints are validated against the bundled `webpki-roots` unless the host calls `with_root_certificates_pem(pem)` on either config. That replaces the bundled roots with exactly the `CERTIFICATE` blocks in `pem` (other PEM items are ignored), for an endpoint behind a TLS-intercepting proxy or signed by a private CA. Validation stays on. A bundle that is not valid PEM or holds no certificate is a `ConfigError`. The host reads the bundle, for example from `SSL_CERT_FILE`; the crate still reads no environment or file.
+
+Proxy: with `with_proxy("http://host:port")` on either config, the call goes through that HTTP `CONNECT` proxy. The tunnel carries the TLS session end to end, so certificate validation is unchanged; for a TLS-intercepting proxy, pass its CA with `with_root_certificates_pem`. `with_proxy_credentials(username, Secret)` authenticates to the proxy with Basic; the password never appears in a `ConfigError`, an error, an event or `Debug` output, and the endpoint never sees it. `with_no_proxy(host)` (`example.com`, `.example.com` or `*.example.com`) connects to matching hosts directly. Refused at configuration: a proxy URL that is not `http://host:port` (no `https`, SOCKS, path or credentials in the URL), credentials or exceptions without a proxy, a plain-http LAN endpoint (`without_key_on_private_lan`), and a keyed plain-`http` endpoint, whose credential the proxy would see in the clear. A proxy that cannot be reached, or refuses the tunnel (for example `407`), is the call's `transport` failure: there is no direct connection as a fallback. The host chooses the proxy; the crate never reads `HTTP_PROXY`, `HTTPS_PROXY` or `NO_PROXY`.
 
 OpenAI-compatible: the body has the model reference, role-tagged text messages, `stream: true`, `stream_options.include_usage: true` and, when the request carries them, `max_tokens`, `temperature` (the contract's thousandths as a JSON number; `0` is sent as `0.0`, never dropped) and `response_format` as `{"type":"json_schema","json_schema":{"name","description","schema","strict":false}}` built from FX's response format. FX has already validated the schema as a JSON object. Consecutive system messages are sent as one message joined by a blank line, in order (some local servers' chat templates accept a single leading system message); a system message after another role stays where it is. The credential is only in the `Authorization` header.
 
@@ -137,7 +139,8 @@ The host passes `OpenAiConfig::new(base_url, Secret)`. Nothing is read from the 
 | Structured output (JSON schema) | OpenAI-compatible: supported; Anthropic: refused before dispatch | refused before dispatch |
 | Prompt cache hints | ignored | ignored |
 | Keyless local servers (LM Studio) | supported (`without_key`) | supported |
-| Proxies, mTLS | not supported (no proxy, no client certificate) | uses the Node `fetch` environment |
+| Proxies | explicit HTTP `CONNECT` proxy with optional Basic credentials and no-proxy hosts (`with_proxy`); never from the environment | uses the Node `fetch` environment |
+| mTLS | not supported (no client certificate) | uses the Node `fetch` environment |
 | Custom CA certificates | host-supplied PEM roots (`with_root_certificates_pem`), replacing the bundled roots | uses the Node `fetch` environment |
 | Remote cancellation confirmation | never confirmed (`unconfirmed`) | transport closing is observed |
 
@@ -162,11 +165,11 @@ Native is the stricter behavior wherever the two differ, and the more informativ
 
 ### What this proves, and what it does not
 
-All evidence here is **mocked transport**: a deterministic HTTP server on loopback, plain `http`, a fake credential, no external network. It proves how the adapter and FX behave for those bytes. It does **not** prove:
+All evidence here is **mocked transport**: a deterministic HTTP server on loopback, a fake credential, no external network. It proves how the adapter and FX behave for those bytes. The TLS path with a private CA and the explicit proxy are exercised on loopback too (`tests/private_ca.rs`, `tests/proxy.rs`, below). It does **not** prove:
 
 * anything about a live provider (no live request was made in this change; the wire format was written from the documented chat-completions stream and the Easy-LLM adapter's parsing);
-* the TLS path (`https`, certificate validation, bundled or host-supplied roots): the library code is established but no test here exercises a handshake (the unit tests cover parsing a PEM bundle, not a handshake);
-* behavior behind an explicit proxy.
+* validation against the bundled `webpki-roots` for a public endpoint (only the refusal of a private CA by those roots is tested);
+* behavior behind a real corporate proxy (the test proxy is a minimal `CONNECT` tunnel; proxy authentication schemes other than Basic are not supported).
 
 One manual run exercised host-supplied roots: an `https` request to the Vercel AI Gateway through a TLS-intercepting egress proxy failed certificate validation (`UnknownIssuer`) with the bundled roots and completed the TLS exchange with the proxy's CA bundle passed to `with_root_certificates_pem`. It is not part of CI.
 
@@ -188,6 +191,10 @@ Live verification needs a real key (or a running LM Studio) and is out of scope 
 * credential redaction: a provider that echoes the key in an HTTP error body and in a stream error never leaks it into the report or events; the key is not printable from the configuration.
 
 The Anthropic cases cover the same ground for the Messages format: stream normalization with usage, model and stop reason; request shape (`x-api-key`, `anthropic-version`, top-level `system`, required `max_tokens`, the host default and the request's cap); `max_tokens`/`refusal`/`stop_sequence` mapping; HTTP 401, 403, 404, 429, 500 and 529 with one connection each; error events; cut streams; missing stop reason; unoffered tool use; malformed JSON; unknown events and thinking deltas; refused features; cancellation before dispatch and in flight; budget timeout; closed connection; credential redaction; and configuration validation. `conformance.rs` also covers the output token cap, keyless endpoints and the extra-header rules.
+
+`tests/proxy.rs` (6 cases) runs through a loopback `CONNECT` proxy: the call is tunnelled (the proxy sees exactly one `CONNECT` for the endpoint); a no-proxy host is reached directly; Basic credentials reach the proxy and nowhere else, and never appear in the report; a proxy that refuses the credentials or cannot be reached fails the call with the endpoint receiving no connection; and the configuration rules above.
+
+`tests/private_ca.rs` (3 cases) generates a CA and a server certificate with the `openssl` command (test tooling only; the crate stays on rustls) and serves a canned stream from `openssl s_server` on loopback: with the bundled roots the handshake fails and the credential is not sent; with the CA from `with_root_certificates_pem` the call completes and the credential went inside TLS; a different CA is refused; and the same endpoint completes through the proxy, the tunnel carrying TLS end to end. Without `openssl` these cases print `SKIPPED` and pass; CI sets `FX_REQUIRE_TLS_TESTS=1`, which makes a missing `openssl` a failure.
 
 Run: `cd rust/fx-native-provider && cargo test --locked`.
 

@@ -259,6 +259,15 @@ impl<W: Wire> Worker<W> {
             Some(secret) => secret.scrub(text),
             None => text.to_owned(),
         };
+        if let Some((_, password)) = self
+            .wire
+            .settings()
+            .proxy
+            .as_ref()
+            .and_then(|proxy| proxy.credentials.as_ref())
+        {
+            text = password.scrub(&text);
+        }
         if text.len() > MESSAGE_LIMIT {
             let mut cut = MESSAGE_LIMIT;
             while !text.is_char_boundary(cut) {
@@ -279,10 +288,24 @@ impl<W: Wire> Worker<W> {
                     .build(),
             );
         }
+        // The host's proxy, or none: never one from the environment.
+        let proxy = match &settings.proxy {
+            Some(proxy) => match proxy.build() {
+                Ok(proxy) => Some(proxy),
+                Err(error) => {
+                    return Err(failure(
+                        PortFailureKind::ProviderError,
+                        error.0,
+                        Observed::NotInvoked,
+                    ));
+                }
+            },
+            None => None,
+        };
         let agent: ureq::Agent = builder
             .http_status_as_error(false)
             .max_redirects(0)
-            .proxy(None)
+            .proxy(proxy)
             .timeout_connect(Some(settings.connect_timeout))
             .timeout_global(Some(self.deadline))
             .build()
