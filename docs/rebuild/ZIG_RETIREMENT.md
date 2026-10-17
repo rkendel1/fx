@@ -54,6 +54,8 @@ Per-file ownership is in `docs/rebuild/inventory/` (generated; do not edit by ha
    `zig-agent-loop` **stays `blocked`**: the retirement diff has not been reviewed, no import map of `src/core/agent` exists, and the corpus
    does not cover the TUI, ACP, gateway, MCP, hooks, tasks or subagents. The `retirement_ready` flag inside `agent-parity.json` is a
    statement about the corpus gate, not about this entry. Nothing is deleted or disabled.
+   **Next (proposed, not implemented):** an explicit opt-in route `fx ask --executor chip`, with the Zig loop as the default. The two
+   commands' contracts, the gaps a route cannot hide, and the owner decisions it needs are in `docs/rebuild/ASK_CHIP_ROUTING.md`.
 3. **Persistence** (`zig-persistence`). Gate: Rust is the only writer for a session started by Rust, and Zig can resume it (already
    covered) and the reverse, including interrupted turns.
 4. **Surfaces** (`zig-surfaces`), in dependency order: tools/builtins, MCP, gateway, ACP, SDK entry points, TUI last (it depends on
